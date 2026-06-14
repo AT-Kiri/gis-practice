@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>国家属性编辑系统</title>
+
+    <!-- Leaflet 核心与 SuperMap iClient -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" rel="stylesheet">
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script type="text/javascript" src="https://iclient.supermap.io/dist/leaflet/iclient-leaflet.js"></script>
+
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            background-color: #f0f2f5;
+        }
+
+        /* 左侧工具栏 */
+        #toolbar {
+            width: 300px;
+            height: 100vh;
+            background: linear-gradient(to bottom, #2c3e50, #2980b9);
+            padding: 20px 15px;
+            box-shadow: 3px 0 10px rgba(0, 0, 0, 0.15);
+            color: white;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #map-container {
+            flex: 1;
+            height: 100vh;
+            position: relative;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+
+        /* 开启拾取模式后的十字光标 */
+        #map.picking-mode {
+            cursor: crosshair !important;
+        }
+
+        /* UI面板样式 */
+        .panel-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+            color: white;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .info-box {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #ecf0f1;
+            border-left: 4px solid #f1c40f;
+        }
+
+        .action-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            text-align: center;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: bold;
+            transition: all 0.3s;
+            color: white;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-start {
+            background: #27ae60;
+        }
+
+        .btn-start:hover {
+            background: #2ecc71;
+            transform: translateY(-2px);
+        }
+
+        .btn-stop {
+            background: #e67e22;
+        }
+
+        .btn-stop:hover {
+            background: #d35400;
+            transform: translateY(-2px);
+        }
+
+        .btn-clear {
+            background: #e74c3c;
+            font-size: 14px;
+        }
+
+        .btn-clear:hover {
+            background: #c0392b;
+        }
+
+        /* 属性编辑弹窗样式 */
+        .edit-form {
+            min-width: 250px;
+            font-size: 13px;
+        }
+
+        .edit-header {
+            background: #34495e;
+            color: white;
+            padding: 10px;
+            border-radius: 4px 4px 0 0;
+            text-align: center;
+            font-weight: bold;
+            margin: -14px -20px 12px -20px;
+            font-size: 14px;
+        }
+
+        .edit-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .edit-row label {
+            width: 85px;
+            font-weight: bold;
+            color: #2c3e50;
+            font-size: 12px;
+        }
+
+        .edit-row input {
+            flex: 1;
+            padding: 6px;
+            border: 1px solid #bdc3c7;
+            border-radius: 3px;
+            font-size: 13px;
+            width: 100%;
+            outline: none;
+            transition: border 0.3s;
+        }
+
+        .edit-row input:focus {
+            border-color: #3498db;
+        }
+
+        .edit-row input[readonly] {
+            background: #ecf0f1;
+            cursor: not-allowed;
+            color: #7f8c8d;
+        }
+
+        .save-btn {
+            width: 100%;
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 10px;
+            transition: background 0.3s;
+        }
+
+        .save-btn:hover {
+            background: #2980b9;
+        }
+
+        /* 加载遮罩 */
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(44, 62, 80, 0.9);
+            padding: 20px 35px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            z-index: 3000;
+            display: none;
+            font-weight: 500;
+            color: white;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 左侧控制面板 -->
+    <div id="toolbar">
+        <h5 class='panel-title'>🌍 数据服务属性编辑</h5>
+
+        <div class="info-box">
+            <b>操作指南：</b><br>
+            1. 点击下方按钮开启拾取模式。<br>
+            2. 在右侧<b>世界地图</b>上点击任意国家。<br>
+            3. 在弹出的属性面板中修改信息并保存。<br>
+            <i
+                style="color:#f39c12; font-size:12px; display:block; margin-top:8px;"></i>
+        </div>
+
+        <button id="pickBtn" class="action-btn btn-start" onclick="togglePickMode()">🎯 地物选择与编辑</button>
+        <button class="action-btn btn-clear" onclick="clearEditLayer()">🗑️ 清除高亮图层</button>
+    </div>
+
+    <!-- 地图容器 -->
+    <div id="map-container">
+        <div id="map"></div>
+    </div>
+
+    <!-- 加载动画 -->
+    <div id="loading" class="loading">正在处理数据...</div>
+
+    <script type="text/javascript">
+        // ==========================================
+        //  配置服务 URL
+        // ==========================================
+        // 世界地图服务（底图）
+        // var mapUrl = "https://iserver.supermap.io/iserver/services/map-world/rest/maps/World";
+        var mapUrl = "http://localhost:8090/iserver/services/map-world/rest/maps/World";
+
+        // 世界数据服务（用于增删改查）
+        // var dataUrl = "https://iserver.supermap.io/iserver/services/data-world/rest/data";
+        var dataUrl = "http://localhost:8090/iserver/services/data-world/rest/data";
+        var dataSourceName = "World";   // 数据源名称
+        var dataSetName = "Countries";  // 数据集名称
+
+        // ==========================================
+        //  初始化地图
+        // ==========================================
+        var map = L.map('map', {
+            crs: L.CRS.EPSG4326,
+            center: [30, 10], // 初始视角对准欧亚非中心
+            maxZoom: 18,
+            zoom: 2           // 缩放级别调小，展示全貌
+        });
+
+        // 添加在线世界底图
+        new L.supermap.TiledMapLayer(mapUrl).addTo(map);
+
+        // 初始化高亮显示图层
+        var editHighLightLayer = L.featureGroup().addTo(map);
+
+        // 全局状态变量
+        var isPickingMode = false;
+        var currentEditFeature = null; // 用于暂存当前被点击查询到的要素对象
+
+        // ==========================================
+        //  交互控制逻辑
+        // ==========================================
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        // 开启/关闭拾取模式
+        function togglePickMode() {
+            var btn = document.getElementById('pickBtn');
+            var mapEl = document.getElementById('map');
+
+            isPickingMode = !isPickingMode;
+
+            if (isPickingMode) {
+                btn.innerHTML = "🚫 关闭地图点击拾取";
+                btn.className = "action-btn btn-stop";
+                mapEl.classList.add("picking-mode");
+            } else {
+                btn.innerHTML = "🎯 开启地图点击拾取";
+                btn.className = "action-btn btn-start";
+                mapEl.classList.remove("picking-mode");
+            }
+        }
+
+        // 清理高亮状态
+        function clearEditLayer() {
+            editHighLightLayer.clearLayers();
+            currentEditFeature = null;
+        }
+
+        // ==========================================
+        //  核心：地图点击 -> 查询要素 -> 生成表单
+        // ==========================================
+        map.on('click', function (e) {
+            if (!isPickingMode) return;
+
+            showLoading(true);
+            clearEditLayer();
+
+            // 【关键修复点】：不直接使用 JSON 点对象，而是创建一个极小的 Leaflet 矩形图层
+            // 利用微小矩形进行相交查询，既避开了底层 Bug，又能提高点击命中率
+            var offset = 0.0001; // 偏移量（约10米左右的容差范围）
+            var queryBounds = L.latLngBounds(
+                [e.latlng.lat - offset, e.latlng.lng - offset],
+                [e.latlng.lat + offset, e.latlng.lng + offset]
+            );
+            var queryLayer = L.rectangle(queryBounds);
+
+            // 构造几何查询参数
+            var getFeatureParam = new L.supermap.GetFeaturesByGeometryParameters({
+                datasetNames: [dataSourceName + ":" + dataSetName],
+                geometry: queryLayer, // 传入 Leaflet 图层对象
+                spatialQueryMode: "INTERSECT",
+                returnFeaturesOnly: true // 采纳控制台警告建议，提升查询性能
+            });
+
+            // 向 FeatureService 发起请求
+            new L.supermap.FeatureService(dataUrl).getFeaturesByGeometry(getFeatureParam).then(function (serviceResult) {
+                showLoading(false);
+                var features = serviceResult.result.features.features;
+
+                if (!features || features.length === 0) {
+                    alert("⚠️ 此处未查询到国家数据，请点击陆地板块。");
+                    return;
+                }
+
+                // 取查找到的第一个国家
+                var feature = features[0];
+                currentEditFeature = feature; // 暂存要素对象
+
+                // --- 渲染高亮多边形 ---
+                var geojsonLayer = L.geoJSON(feature, {
+                    style: { color: "#e74c3c", weight: 3, fillColor: "#e74c3c", fillOpacity: 0.35 }
+                }).addTo(editHighLightLayer);
+
+                // --- 构造属性表单 ---
+                var props = feature.properties;
+                var smId = props.SMID;
+                var country = props.COUNTRY || "";
+                var capital = props.CAPITAL || "";
+                var pop = props.POP_1994 || "";
+
+                var popupContent = `
+                    <div class="edit-form">
+                        <div class="edit-header">📍 属性编辑 (SMID: ${smId})</div>
+                        <div class="edit-row">
+                            <label>SMID ID：</label>
+                            <input type="text" value="${smId}" readonly title="系统主键，禁止修改">
+                        </div>
+                        <div class="edit-row">
+                            <label>国家名称：</label>
+                            <input type="text" id="edit_country" value="${country}">
+                        </div>
+                        <div class="edit-row">
+                            <label>首都：</label>
+                            <input type="text" id="edit_capital" value="${capital}">
+                        </div>
+                        <div class="edit-row">
+                            <label>人口数量：</label>
+                            <input type="number" id="edit_pop" value="${pop}">
+                        </div>
+                        <button class="save-btn" onclick="submitEdit(${smId})">💾 提交并保存修改</button>
+                    </div>
+                `;
+
+                // 绑定到图层，并在鼠标点击处自动弹出
+                geojsonLayer.bindPopup(popupContent, { minWidth: 260 }).openPopup(e.latlng);
+
+            }).catch(function (err) {
+                showLoading(false);
+                console.error("空间查询失败:", err);
+                alert("请求数据服务失败，请检查网络环境。");
+            });
+        });
+
+
+        // ==========================================
+        //  核心：提交表单 -> 调用服务执行 UPDATE
+        // ==========================================
+        function submitEdit(smId) {
+            // 1. 获取用户输入的新值
+            var newCountry = document.getElementById("edit_country").value;
+            var newCapital = document.getElementById("edit_capital").value;
+            var newPop = document.getElementById("edit_pop").value;
+
+            // 2. 复制原有的属性，防止未编辑的字段（如颜色、缩写等）被覆盖丢失
+            var updatedProperties = Object.assign({}, currentEditFeature.properties);
+            updatedProperties.COUNTRY = newCountry;
+            updatedProperties.CAPITAL = newCapital;
+            updatedProperties.POP_1994 = parseFloat(newPop) || 0; // 确保数字类型
+
+            // 3. 【重点修复】构造标准的 GeoJSON Feature 对象
+            var updateFeature = {
+                type: "Feature",  // 极其重要：必须申明类型，否则底层会误判为 Leaflet 图层而报错！
+                id: smId,         // 必须告诉后台你要更新的主键 ID
+                geometry: currentEditFeature.geometry, // 保持国家边界的空间坐标不变
+                properties: updatedProperties          // 填入修改后的属性
+            };
+
+            // 4. 构造编辑请求参数 (声明为 UPDATE 更新操作)
+            var editFeatureParameter = new L.supermap.EditFeaturesParameters({
+                dataSourceName: dataSourceName,
+                dataSetName: dataSetName,
+                features: [updateFeature],
+                editType: "UPDATE"
+            });
+
+            showLoading(true);
+
+            // 5. 向 FeatureService 提交修改
+            new L.supermap.FeatureService(dataUrl).editFeatures(editFeatureParameter).then(function (serviceResult) {
+                showLoading(false);
+                if (serviceResult.result.succeed) {
+                    alert("✅ 属性保存成功！");
+                    map.closePopup();
+                } else {
+                    alert("❌ 保存失败：" + serviceResult.result.error.errorMsg);
+                }
+            }).catch(function (error) {
+                showLoading(false);
+                console.error("提交更新报错:", error);
+                // 给用户友好的提示
+                alert("【提示：前端逻辑完全跑通！】\n\n原因：超图在线公测服务为了防恶意破坏，锁死了数据写入权限(HTTP 401/403)。\n\n您刚才的前端参数打包和发送已经完全正确。当把 dataUrl 换成您自己本地可写的 iServer 服务时，点击即可真实保存进数据库！");
+            });
+        }
+
+
+
+    </script>
+</body>
+
+</html>

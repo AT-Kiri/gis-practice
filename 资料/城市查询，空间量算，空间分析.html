@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地图查询系统</title>
+
+    <!-- 在线依赖 -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script type="text/javascript"
+        src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script type="text/javascript" src="https://iclient.supermap.io/dist/leaflet/iclient-leaflet.js"></script>
+    <script type="text/javascript"
+        src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-geometryutil/0.9.3/leaflet.geometryutil.min.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            background-color: #f0f2f5;
+        }
+
+        /* 左侧工具栏 */
+        #toolbar {
+            width: 280px;
+            height: 100vh;
+            background: linear-gradient(to bottom, #2c3e50, #4a6741);
+            padding: 20px 15px;
+            overflow-y: auto;
+            box-shadow: 3px 0 10px rgba(0, 0, 0, 0.1);
+            color: white;
+            z-index: 2000;
+        }
+
+        #map-container {
+            flex: 1;
+            height: 100vh;
+            position: relative;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 菜单样式 */
+        .panel-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+            color: white;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            padding: 10px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group-addon {
+            display: block;
+            background: #34495e;
+            color: white;
+            padding: 8px 12px;
+            font-size: 13px;
+            border-radius: 5px 5px 0 0;
+            font-weight: 500;
+        }
+
+        #sql {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #bdc3c7;
+            border-radius: 0 0 5px 5px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .menu-item {
+            margin-bottom: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .menu-title {
+            font-weight: bold;
+            padding: 12px 15px;
+            background: rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 15px;
+        }
+
+        .menu-title:hover {
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .sub-menu {
+            display: none;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #2c3e50;
+        }
+
+        .sub-menu.active {
+            display: block;
+        }
+
+        .sub-menu-btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            text-align: left;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .sub-menu-btn:hover {
+            background: #2980b9;
+            transform: translateX(3px);
+        }
+
+        /* 热门城市标签 */
+        .hot-cities {
+            margin-top: 15px;
+        }
+
+        .hot-cities-title {
+            font-size: 14px;
+            color: #34495e;
+            margin-bottom: 10px;
+            font-weight: bold;
+            padding-left: 5px;
+        }
+
+        .city-tags {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .city-tag {
+            padding: 6px 10px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 18px;
+            cursor: pointer;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .city-tag:hover {
+            background: #2980b9;
+            transform: scale(1.05);
+        }
+
+        /* 表格样式 */
+        .btn {
+            padding: 5px 10px;
+            border: 1px solid #bdc3c7;
+            background: #ecf0f1;
+            cursor: pointer;
+            font-size: 12px;
+            border-radius: 4px;
+        }
+
+        .btn:hover {
+            background: #d5dbdb;
+        }
+
+        #hotCitiesTableContainer {
+            display: none;
+            background: white;
+            padding: 18px;
+            margin-top: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            max-height: 350px;
+            overflow-y: auto;
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 1000;
+            min-width: 420px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        #hotCitiesTable {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-top: 10px;
+        }
+
+        #hotCitiesTable th,
+        #hotCitiesTable td {
+            padding: 10px 8px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        #hotCitiesTable th {
+            background: #f8f9fa;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+
+        #hotCitiesTable tr:hover {
+            background: #e3f2fd;
+        }
+
+        .close-btn {
+            float: right;
+            cursor: pointer;
+            font-size: 22px;
+            color: #7f8c8d;
+            line-height: 1;
+            font-weight: bold;
+        }
+
+        .close-btn:hover {
+            color: #2c3e50;
+        }
+
+        /* 空间分析面板 */
+        #spatialPanel {
+            display: none;
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: white;
+            padding: 18px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            width: 300px;
+        }
+
+        #spatialPanel h3 {
+            margin-bottom: 15px;
+            font-size: 16px;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 8px;
+        }
+
+        .panel-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .panel-btn {
+            padding: 10px;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            text-align: center;
+            font-size: 13px;
+        }
+
+        .panel-btn:hover {
+            background: #e3f2fd;
+            border-color: #3498db;
+            color: #3498db;
+        }
+
+        /* 弹窗及加载框 */
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px 35px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            z-index: 3000;
+            display: none;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        .popup-header {
+            background: #3498db;
+            color: white;
+            padding: 10px;
+            border-radius: 5px 5px 0 0;
+            text-align: center;
+            margin: -15px -15px 10px -15px;
+        }
+
+        .popup-info p {
+            margin: 6px 0;
+            font-size: 13px;
+            color: #2c3e50;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="toolbar">
+        <h5 class='panel-title'>🗺️ 地图查询系统</h5>
+
+        <!-- 菜单项：城市查询 -->
+        <div class="menu-item">
+            <div class="menu-title" onclick="toggleMenu('cityQueryMenu')">
+                城市查询 <span class="menu-icon">▼</span>
+            </div>
+            <div id="cityQueryMenu" class="sub-menu active">
+                <div class='input-group'>
+                    <span class='input-group-addon'>🔍 搜索条件</span>
+                    <input type="text" class="form-control" id="sql" placeholder="输入城市名称" />
+                </div>
+                <button class="sub-menu-btn" onclick="query()">查询</button>
+                <button class="sub-menu-btn" onclick="clearFeatures()">清除结果</button>
+                <button class="sub-menu-btn" onclick="showHotCitiesInfo()">热门城市信息</button>
+
+                <div class="hot-cities">
+                    <div class="hot-cities-title">热门城市</div>
+                    <div class="city-tags">
+                        <button class="city-tag" onclick="searchCity('北京市')">北京</button>
+                        <button class="city-tag" onclick="searchCity('上海市')">上海</button>
+                        <button class="city-tag" onclick="searchCity('广州市')">广州</button>
+                        <button class="city-tag" onclick="searchCity('深圳市')">深圳</button>
+                        <button class="city-tag" onclick="searchCity('成都市')">成都</button>
+                        <button class="city-tag" onclick="searchCity('杭州市')">杭州</button>
+                        <button class="city-tag" onclick="searchCity('西安市')">西安</button>
+                        <button class="city-tag" onclick="searchCity('南京市')">南京</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 菜单项：空间查询 (原有的距离/面积量算) -->
+        <div class="menu-item">
+            <div class="menu-title" onclick="toggleMenu('spatialQueryMenu')">
+                空间量算 <span class="menu-icon">▼</span>
+            </div>
+            <div id="spatialQueryMenu" class="sub-menu">
+                <button class="sub-menu-btn" onclick="distanceMeasure()">📏 距离量算</button>
+                <button class="sub-menu-btn" onclick="areaMeasure()">📐 面积量算</button>
+                <button class="sub-menu-btn" onclick="clearDrawings()" style="background:#e74c3c;">🗑️ 清除量算</button>
+            </div>
+        </div>
+
+        <!-- 菜单项：空间分析 (新增) -->
+        <div class="menu-item">
+            <div class="menu-title" onclick="toggleSpatialPanel()">
+                空间分析 <span class="menu-icon">▶</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="map-container">
+        <div id="map"></div>
+
+        <!-- 原有的：热门城市信息表格容器 -->
+        <div id="hotCitiesTableContainer">
+            <span class="close-btn" onclick="closeHotCitiesInfo()">×</span>
+            <h3 style="color:#2c3e50; margin-bottom:10px;">热门城市信息</h3>
+            <table id="hotCitiesTable">
+                <thead>
+                    <tr>
+                        <th>城市</th>
+                        <th>省份</th>
+                        <th>经度</th>
+                        <th>纬度</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="hotCitiesTableBody">
+                    <!-- 动态填充数据 -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 新增的：空间分析操作面板 -->
+        <div id="spatialPanel">
+            <span class="close-btn" onclick="document.getElementById('spatialPanel').style.display='none'">×</span>
+            <h3>💠 空间分析工具</h3>
+            <div class="panel-grid">
+                <button class="panel-btn" onclick="startSpatialAnalysis('rectangle')">⬛ 框选</button>
+                <button class="panel-btn" onclick="startSpatialAnalysis('circle')">⭕ 圆选</button>
+                <button class="panel-btn" onclick="startSpatialAnalysis('polygon')" style="grid-column: span 2;">⬟
+                    任意多边形选</button>
+            </div>
+            <button class="sub-menu-btn" onclick="clearAnalysis()" style="background:#e74c3c; margin:0;">🗑️
+                清除分析结果</button>
+        </div>
+    </div>
+
+    <div id="loading" class="loading">正在查询中...</div>
+
+    <script type="text/javascript">
+        // --- 核心变量及地图初始化 ---
+        var map, resultLayer, currentLayerGroup;
+
+        // 你的原始服务 URL
+        var url0 = "https://iserver.supermap.io/iserver/services/map-china400/rest/maps/China_4326";
+        var url = "http://localhost:8090/iserver/services/map-WorkSpace/rest/maps/%E5%B8%82%40DataSource";
+
+        // 恢复你的原始 baseMaps 双底图配置
+        let baseMaps = {
+            "在线地图": new L.supermap.TiledMapLayer(url0),
+            "本地地图": new L.supermap.TiledMapLayer(url)
+        };
+
+        map = L.map('map', {
+            preferCanvas: true,
+            crs: L.CRS.EPSG4326,
+            center: [33, 105],
+            maxZoom: 18,
+            zoom: 4,
+            layers: baseMaps["在线地图"], // 默认显示在线地图
+        });
+
+        L.control.layers(baseMaps).addTo(map);
+
+        // 绘图和分析用到的图层组
+        var drawnItems = new L.FeatureGroup().addTo(map);      // 存放量算图形
+        var analysisShapes = new L.FeatureGroup().addTo(map);  // 存放分析绘制的形状
+        var analysisMarkers = new L.FeatureGroup().addTo(map); // 存放分析查出来的结果点
+        var currentDrawTool = null; // 当前绘图工具句柄
+
+        // 补全缺失的热门城市数据
+        const hotCities = [
+            { name: '北京市', province: '北京市', lng: 116.40, lat: 39.90 },
+            { name: '上海市', province: '上海市', lng: 121.47, lat: 31.23 },
+            { name: '广州市', province: '广东省', lng: 113.26, lat: 23.12 },
+            { name: '深圳市', province: '广东省', lng: 114.05, lat: 22.54 },
+            { name: '成都市', province: '四川省', lng: 104.06, lat: 30.65 },
+            { name: '杭州市', province: '浙江省', lng: 120.15, lat: 30.28 },
+            { name: '西安市', province: '陕西省', lng: 108.94, lat: 34.34 },
+            { name: '南京市', province: '江苏省', lng: 118.79, lat: 32.06 }
+        ];
+
+        // --- UI 控制逻辑 ---
+        function toggleMenu(menuId) {
+            document.querySelectorAll('.sub-menu').forEach(m => m.classList.remove('active'));
+            document.getElementById(menuId).classList.add('active');
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        // --- 第一部分：城市查询与热门城市表单 ---
+        function searchCity(cityName) {
+            document.getElementById("sql").value = cityName;
+            query();
+        }
+
+        function query() {
+            let inputValue = document.getElementById("sql").value.trim();
+            if (!inputValue) { alert('请输入城市名称'); return; }
+
+            showLoading(true);
+            var sql = `city like '%${inputValue}%'`;
+            var param = new L.supermap.QueryBySQLParameters({
+                queryParams: {
+                    name: "city_point_P@DataSource",
+                    attributeFilter: sql
+                }
+            });
+
+            // 使用本地 url 进行查询
+            new L.supermap.QueryService(url).queryBySQL(param).then((serviceResult) => {
+                showLoading(false);
+                clearFeatures(); // 查询前先清除一下
+
+                var result = serviceResult.result;
+                if (!result || !result.recordsets || result.recordsets.length === 0 || !result.recordsets[0].features.features.length) {
+                    alert('未找到相关城市信息，请确保本地服务启动且数据集名称正确');
+                    return;
+                }
+
+                resultLayer = L.geoJSON(result.recordsets[0].features).addTo(map);
+
+                const props = result.recordsets[0].features.features[0].properties;
+                const latlng = L.latLng(props.lat, props.lng);
+
+                map.flyTo(latlng, 6, { animate: true, duration: 1.5 });
+                currentLayerGroup = L.layerGroup().addTo(map);
+
+                const marker = L.marker(latlng, { title: props.city }).addTo(currentLayerGroup);
+                const popupContent = `
+                    <div>
+                        <div class="popup-header"><h3 style="margin: 0; font-size: 16px;">${props.city}</h3></div>
+                        <div class="popup-info">
+                            <p><strong>所属省份：</strong>${props.province}</p>
+                            <p><strong>经度：</strong>${props.lng}°E</p>
+                            <p><strong>纬度：</strong>${props.lat}°N</p>
+                        </div>
+                    </div>
+                `;
+                marker.bindPopup(popupContent);
+                setTimeout(() => { marker.openPopup(); }, 1000);
+            }).catch((error) => {
+                showLoading(false);
+                console.error('查询失败:', error);
+                alert('查询失败，无法连接到本地 SuperMap iServer 服务');
+            });
+        }
+
+        function clearFeatures() {
+            if (resultLayer) map.removeLayer(resultLayer);
+            if (currentLayerGroup) map.removeLayer(currentLayerGroup);
+            document.getElementById("sql").value = "";
+        }
+
+        document.getElementById("sql").addEventListener("keypress", function (e) {
+            if (e.key === "Enter") query();
+        });
+
+        // 热门城市信息表格展示
+        function showHotCitiesInfo() {
+            const tableBody = document.getElementById('hotCitiesTableBody');
+            tableBody.innerHTML = '';
+            hotCities.forEach(city => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td onclick="locateToCity(${city.lat}, ${city.lng})" style="cursor: pointer; color: #3498db; text-decoration: underline;">${city.name}</td>
+                    <td>${city.province}</td>
+                    <td>${city.lng}</td>
+                    <td>${city.lat}</td>
+                    <td><button class="btn" onclick="searchCity('${city.name}')">查询</button></td>
+                `;
+                tableBody.appendChild(row);
+            });
+            // 关闭其他弹窗，显示表格
+            document.getElementById('spatialPanel').style.display = 'none';
+            document.getElementById('hotCitiesTableContainer').style.display = 'block';
+        }
+
+        function closeHotCitiesInfo() {
+            document.getElementById('hotCitiesTableContainer').style.display = 'none';
+        }
+
+        function locateToCity(lat, lng) {
+            map.flyTo(L.latLng(lat, lng), 6, { animate: true, duration: 1.5 });
+        }
+
+        // --- 第二部分：原有的空间查询 (测量工具) ---
+        // 为了修复你原始代码每次点击都产生新画板的问题，这里采用了直接触发API绘制的方法
+        function distanceMeasure() {
+            if (currentDrawTool) currentDrawTool.disable();
+            map.off('draw:created');
+
+            currentDrawTool = new L.Draw.Polyline(map, { shapeOptions: { color: '#e74c3c', weight: 4 } });
+            currentDrawTool.enable();
+            // alert("请在地图上点击绘制测量路径，双击结束绘制");
+
+            map.once('draw:created', function (e) {
+                var layer = e.layer;
+                drawnItems.addLayer(layer);
+
+                var totalDistance = 0;
+                var latLngs = layer.getLatLngs();
+                for (var i = 0; i < latLngs.length - 1; i++) {
+                    totalDistance += latLngs[i].distanceTo(latLngs[i + 1]);
+                }
+                var distDisplay = totalDistance < 1000 ? totalDistance.toFixed(2) + " 米" : (totalDistance / 1000).toFixed(2) + " 公里";
+
+                layer.bindPopup(`<div style="padding:5px; font-weight:bold; color:#e74c3c;">📏 总距离: ${distDisplay}</div>`).openPopup();
+                alert(`总距离: ${distDisplay}`);
+            });
+        }
+
+        function areaMeasure() {
+            if (currentDrawTool) currentDrawTool.disable();
+            map.off('draw:created');
+
+            currentDrawTool = new L.Draw.Polygon(map, { shapeOptions: { fillColor: '#f1c40f', color: '#e67e22', weight: 3 } });
+            currentDrawTool.enable();
+            // alert("请在地图上点击绘制多边形区域，双击结束绘制");
+
+            map.once('draw:created', function (e) {
+                var layer = e.layer;
+                drawnItems.addLayer(layer);
+
+                var latLngs = layer.getLatLngs()[0];
+                var area = L.GeometryUtil.geodesicArea(latLngs);
+                var areaDisplay = area < 1000000 ? area.toFixed(2) + " 平方米" : (area / 1000000).toFixed(4) + " 平方公里";
+
+                layer.bindPopup(`<div style="padding:5px; font-weight:bold; color:#e67e22;">📐 总面积: ${areaDisplay}</div>`).openPopup();
+                alert(`总面积: ${areaDisplay}`);
+            });
+        }
+
+        function clearDrawings() {
+            if (currentDrawTool) currentDrawTool.disable();
+            drawnItems.clearLayers();
+        }
+
+        // --- 第三部分：新增的空间分析功能 ---
+        function toggleSpatialPanel() {
+            document.getElementById('hotCitiesTableContainer').style.display = 'none';
+            document.getElementById('spatialPanel').style.display = 'block';
+        }
+
+        function startSpatialAnalysis(type) {
+            if (currentDrawTool) currentDrawTool.disable();
+            map.off('draw:created');
+
+            var options = { shapeOptions: { color: '#3498db', fillColor: '#3498db', fillOpacity: 0.2, weight: 2 } };
+
+            if (type === 'rectangle') {
+                currentDrawTool = new L.Draw.Rectangle(map, options);
+                // alert("请在地图上拖拽鼠标进行框选");
+            } else if (type === 'circle') {
+                currentDrawTool = new L.Draw.Circle(map, options);
+                // alert("请在地图上拖拽鼠标进行圆选");
+            } else if (type === 'polygon') {
+                currentDrawTool = new L.Draw.Polygon(map, options);
+                // alert("请在地图上点击绘制任意多边形，双击结束");
+            }
+
+            currentDrawTool.enable();
+
+            // 监听几何图形绘制完成
+            map.once('draw:created', function (e) {
+                var layer = e.layer;
+                // 清理上一次的分析结果
+                analysisShapes.clearLayers();
+                analysisMarkers.clearLayers();
+
+                analysisShapes.addLayer(layer);
+
+                // 发起几何查询
+                executeGeometryQuery(layer);
+            });
+        }
+
+        // --- 辅助函数：将 L.Circle 转换为 L.Polygon (近似圆) ---
+        function circleToPolygon(circle, steps = 64) {
+            var center = circle.getLatLng();
+            var radius = circle.getRadius();
+            var points = [];
+
+            // 将半径从米转换为度数的大致估算 (用于计算偏移量，更精确的做法是使用 destination 方法)
+            // 这里我们使用 leaflet 自带的 geometryUtil 或者简单的三角计算
+            // 为了兼容性，我们使用简单的三角函数生成点，并利用 map.project/unproject 保证精度
+
+            for (var i = 0; i < steps; i++) {
+                var angle = (i * 360 / steps) * (Math.PI / 180);
+                // 计算偏移量 (简单近似，对于小范围城市查询足够)
+                // 更严谨的方式是使用 L.GeometryUtil.destination，但需要引入额外依赖或自行实现
+                // 这里使用一个简单的经纬度偏移计算：
+
+                var dy = radius * Math.sin(angle);
+                var dx = radius * Math.cos(angle) / Math.cos(center.lat * (Math.PI / 180)); // 修正经度随纬度变化
+
+                // 将米转换为度数 (1度约等于 111139 米)
+                var latOffset = dy / 111139;
+                var lngOffset = dx / 111139;
+
+                points.push([center.lat + latOffset, center.lng + lngOffset]);
+            }
+
+            // 闭合多边形
+            points.push(points[0]);
+
+            return L.polygon(points, {
+                color: circle.options.color,
+                fillColor: circle.options.fillColor,
+                fillOpacity: circle.options.fillOpacity,
+                weight: circle.options.weight
+            });
+        }
+
+
+
+        function executeGeometryQuery(geometryLayer) {
+            showLoading(true);
+
+            var queryGeometry = geometryLayer;
+
+            // 【关键修复】如果绘制的是圆，将其转换为多边形，否则 SuperMap 可能无法识别
+            if (geometryLayer instanceof L.Circle) {
+                queryGeometry = circleToPolygon(geometryLayer);
+                // 可选：如果你希望地图上显示的依然是完美的圆，可以保留原 layer，
+                // 但查询用转换后的 polygon。这里为了视觉一致，我们暂时不替换地图上的图层，
+                // 只用于查询参数。
+            }
+
+            // 构造几何查询参数
+            var param = new L.supermap.QueryByGeometryParameters({
+                queryParams: { name: "city_point_P@DataSource" },
+                geometry: queryGeometry, // 使用可能转换后的几何体
+                spatialQueryMode: "INTERSECT"
+            });
+
+            new L.supermap.QueryService(url).queryByGeometry(param).then(function (serviceResult) {
+                showLoading(false);
+                var result = serviceResult.result;
+
+                if (!result || !result.recordsets || result.recordsets.length === 0 || !result.recordsets[0].features.features.length) {
+                    alert("选定区域内未查找到任何城市数据");
+                    return;
+                }
+
+                var features = result.recordsets[0].features.features;
+                alert(`查找到 ${features.length} 个城市`);
+
+                // 遍历结果，添加到地图上并绑定事件
+                features.forEach(function (feat) {
+                    var props = feat.properties;
+                    // 从属性中获取经纬度，或者从 geometry 节点获取
+                    var lat = props.lat || feat.geometry.coordinates[1];
+                    var lng = props.lng || feat.geometry.coordinates[0];
+                    var cityName = props.city || "未知城市";
+
+                    var latlng = L.latLng(lat, lng);
+
+                    // 避免重复添加 marker (如果之前已经添加过)
+                    // 这里简单处理：每次分析都清空 analysisMarkers，所以不会重复
+                    var marker = L.marker(latlng).addTo(analysisMarkers);
+
+                    // 1. 悬浮事件 (Tooltip)
+                    marker.bindTooltip(`<b>${cityName}</b>`, { direction: 'top', offset: [0, -10] });
+                    marker.on('mouseover', function () { this.openTooltip(); });
+                    marker.on('mouseout', function () { this.closeTooltip(); });
+
+                    // 2. 点击事件 (Popup)
+                    var popupContent = `
+                        <div>
+                            <div class="popup-header"><h3 style="margin: 0; font-size: 15px;">📍 ${cityName}</h3></div>
+                            <div class="popup-info">
+                                <p><strong>省份：</strong>${props.province || '未知'}</p>
+                                <p><strong>经度：</strong>${parseFloat(lng).toFixed(4)}°E</p>
+                                <p><strong>纬度：</strong>${parseFloat(lat).toFixed(4)}°N</p>
+                            </div>
+                        </div>
+                    `;
+                    marker.bindPopup(popupContent);
+                });
+            }).catch(function (error) {
+                showLoading(false);
+                console.error("几何查询失败:", error);
+                alert("空间分析查询失败，请检查本地服务或数据集名称是否匹配！");
+            });
+        }
+
+        function clearAnalysis() {
+            if (currentDrawTool) currentDrawTool.disable();
+            analysisShapes.clearLayers();
+            analysisMarkers.clearLayers();
+        }
+
+    </script>
+</body>
+
+</html>

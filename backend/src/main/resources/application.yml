@@ -1,0 +1,15 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: emergency-backend
+
+iserver:
+  base-url: http://localhost:8090
+  data-service: data-jingjin
+  datasource: Jingjin
+  map-service: map-jingjin
+  map-name: 京津地区地图
+  spatial-service: spatialanalyst-sample
+  transport-service: transportationanalyst-sample
