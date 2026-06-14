@@ -6,6 +6,10 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+/**
+ * 空间查询接口
+ * 提供通过几何图形（点/矩形/圆形）进行空间叠加查询的功能
+ */
 @RestController
 @RequestMapping("/api/spatial")
 public class SpatialQueryController {
@@ -16,6 +20,11 @@ public class SpatialQueryController {
         this.spatialQueryService = spatialQueryService;
     }
 
+    /**
+     * 空间查询：查找与指定几何相交的所有地物要素
+     * @param params 请求体，包含 geometry（GeoJSON 几何对象）
+     * @return 查询结果，包含要素列表、各数据集统计和耗时
+     */
     @PostMapping("/query")
     public R<Map<String, Object>> query(@RequestBody Map<String, Object> params) {
         Object geometry = params.get("geometry");

@@ -1,4 +1,5 @@
 <template>
+  <!-- 量算工具条：提供距离和面积量算功能 -->
   <div class="measure-toolbar">
     <a-tooltip title="距离量算" placement="left">
       <a-button
@@ -35,23 +36,26 @@ import mapboxgl from 'mapbox-gl'
 const store = useMapStore()
 const activeMode = ref(null)
 
-let pts = []
-let markers = []
-let labels = []
+// 量算状态变量
+let pts = []          // 采集的点列表 [[lng, lat], ...]
+let markers = []      // 地图上的标注点
+let labels = []       // 距离/面积文字标签
 
-// Layers created in activate:
+// 量算图层命名约定：
 //   source 'measure-main' → layers: 'measure-line', 'measure-fill', 'measure-outline'
-//   source 'measure-preview' → layers: 'measure-preview'
+//   source 'measure-preview' → layer: 'measure-preview'（鼠标跟随预览线）
 
+/** 安全移除地图图层或数据源 */
 function safeRemove(id, type) {
   const map = store.mapInstance
   if (!map) return
   try {
     if (type === 'layer' && map.getLayer(id)) map.removeLayer(id)
     if (type === 'source' && map.getSource(id)) map.removeSource(id)
-  } catch (e) { /* ignore */ }
+  } catch (e) { /* 忽略已不存在的错误 */ }
 }
 
+/** 切换量算模式 */
 function toggleMode(mode) {
   if (activeMode.value === mode) {
     deactivate()
@@ -62,22 +66,22 @@ function toggleMode(mode) {
   activate()
 }
 
+/** 激活量算模式：初始化地图事件和图层 */
 function activate() {
   const map = store.mapInstance
   if (!map) return
 
-  // Clear previous measurement artifacts
+  // 清除上一次量算的残留
   clearLabels()
   markers.forEach(m => { try { m.remove() } catch(e) {} })
   markers = []
   if (map.getSource('measure-main')) map.getSource('measure-main').setData(emptyFC())
 
   map.getCanvas().style.cursor = 'crosshair'
-  // Disable dblclick zoom during measurement
-  map.doubleClickZoom.disable()
+  map.doubleClickZoom.disable()  // 禁用双击缩放，避免与完成量算冲突
   pts = []
 
-  // Shared drawing source
+  // 量算主数据源：存放已确定的点和线段
   if (!map.getSource('measure-main')) {
     map.addSource('measure-main', { type: 'geojson', data: emptyFC() })
     map.addLayer({ id: 'measure-line', type: 'line', source: 'measure-main',
@@ -91,7 +95,7 @@ function activate() {
       filter: ['==', '$type', 'Polygon'] })
   }
 
-  // Preview line (mouse follow)
+  // 预览线：鼠标跟随显示到下一个点的虚线
   if (!map.getSource('measure-preview')) {
     map.addSource('measure-preview', { type: 'geojson', data: emptyFC() })
     map.addLayer({ id: 'measure-preview', type: 'line', source: 'measure-preview',
@@ -103,6 +107,7 @@ function activate() {
   map.on('dblclick', finish)
 }
 
+/** 停用量算模式：移除事件监听，保留已绘制结果 */
 function deactivate() {
   const map = store.mapInstance
   if (!map) return
@@ -110,10 +115,11 @@ function deactivate() {
   map.off('dblclick', finish)
   map.off('mousemove', onMove)
   map.getCanvas().style.cursor = ''
-  // Clear preview
+  // 清除预览线
   if (map.getSource('measure-preview')) map.getSource('measure-preview').setData(emptyFC())
 }
 
+/** 在地图上添加一个量算点 */
 function addPoint(e) {
   const map = store.mapInstance
   if (!map) return
@@ -121,7 +127,7 @@ function addPoint(e) {
   const pt = [e.lngLat.lng, e.lngLat.lat]
   pts.push(pt)
 
-  // Marker
+  // 添加红色圆点标记
   const el = document.createElement('div')
   el.className = 'm-dot'
   el.style.cssText = 'width:8px;height:8px;background:#ff4d4f;border-radius:50%;border:2px solid #fff;'
@@ -131,6 +137,7 @@ function addPoint(e) {
   updateDraw()
 }
 
+/** 鼠标移动时更新预览线：从最后一个点到鼠标当前位置 */
 function onMove(e) {
   const map = store.mapInstance
   if (!map || pts.length === 0) return
@@ -146,11 +153,12 @@ function onMove(e) {
   })
 }
 
+/** 完成量算：计算并显示距离或面积 */
 function finish() {
   const map = store.mapInstance
   if (!map) return
 
-  // Clear preview
+  // 清除预览线
   if (map.getSource('measure-preview')) map.getSource('measure-preview').setData(emptyFC())
 
   if (pts.length < 2) {
@@ -164,11 +172,12 @@ function finish() {
   }
 
   if (activeMode.value === 'distance') {
+    // 距离量算：显示总距离标签
     const total = totalDist(pts)
     const last = pts[pts.length - 1]
     addLabel([last[0], last[1] + 0.015], '总计: ' + fmtDist(total))
   } else if (pts.length >= 3) {
-    // Close+draw polygon
+    // 面积量算：闭合多边形并显示面积标签
     const closed = [...pts, pts[0]]
     if (map.getSource('measure-main')) {
       map.getSource('measure-main').setData({
@@ -186,7 +195,7 @@ function finish() {
   }
 
   deactivate()
-  // Defer re-enabling dblclick zoom so it doesn't trigger on this dblclick
+  // 延迟恢复双击缩放，避免本次双击也被放大
   setTimeout(() => {
     const m = store.mapInstance
     if (m) m.doubleClickZoom.enable()
@@ -194,6 +203,7 @@ function finish() {
   activeMode.value = null
 }
 
+/** 更新量算图形显示：根据模式更新线或面 */
 function updateDraw() {
   const map = store.mapInstance
   if (!map) return
@@ -201,6 +211,7 @@ function updateDraw() {
   if (!src) return
 
   if (activeMode.value === 'distance') {
+    // 距离模式：每段线独立绘制并标注分段距离
     const features = []
     for (let i = 1; i < pts.length; i++) {
       features.push({
@@ -217,7 +228,7 @@ function updateDraw() {
       addLabel(mid, fmtDist(seg))
     }
   } else {
-    // Area mode: show polygon in progress
+    // 面积模式：显示正在绘制的多边形
     const closed = [...pts]
     src.setData({
       type: 'FeatureCollection',
@@ -229,6 +240,7 @@ function updateDraw() {
   }
 }
 
+/** 在地图上添加文字标签（Marker 方式实现） */
 function addLabel(coords, text) {
   const el = document.createElement('div')
   el.textContent = text
@@ -237,17 +249,20 @@ function addLabel(coords, text) {
   labels.push(m)
 }
 
+/** 清除所有文字标签 */
 function clearLabels() {
   labels.forEach(m => { try { m.remove() } catch(e) {} })
   labels = []
 }
 
+/** 清除所有量算结果 */
 function clearAll() {
   const map = store.mapInstance
   if (!map) return
 
   deactivate()
 
+  // 移除量算图层和数据源
   ;['measure-main', 'measure-preview'].forEach(id => {
     safeRemove('measure-line', 'layer')
     safeRemove('measure-fill', 'layer')
@@ -267,8 +282,11 @@ function clearAll() {
 
 function emptyFC() { return { type: 'FeatureCollection', features: [] } }
 
+/**
+ * Haversine 公式计算两点间的大圆距离（米）
+ */
 function haversine(a, b) {
-  const R = 6371000
+  const R = 6371000  // 地球平均半径（米）
   const dLat = ((b[1] - a[1]) * Math.PI) / 180
   const dLon = ((b[0] - a[0]) * Math.PI) / 180
   const la1 = (a[1] * Math.PI) / 180
@@ -278,12 +296,16 @@ function haversine(a, b) {
   ))
 }
 
+/** 计算多点总距离 */
 function totalDist(p) {
   let t = 0
   for (let i = 1; i < p.length; i++) t += haversine(p[i - 1], p[i])
   return t
 }
 
+/**
+ * 计算多边形面积（使用球面近似算法）
+ */
 function calcArea(p) {
   let a = 0
   const R = 6371000
@@ -299,7 +321,10 @@ function calcArea(p) {
   return Math.abs((a * R * R) / 2)
 }
 
+/** 格式化距离显示：小于 1km 显示米，否则显示公里 */
 function fmtDist(m) { return m < 1000 ? m.toFixed(1) + ' m' : (m / 1000).toFixed(2) + ' km' }
+
+/** 格式化面积显示：小于 1km² 显示平方米，否则显示平方公里 */
 function fmtArea(s) { return s < 1e6 ? s.toFixed(1) + ' m²' : (s / 1e6).toFixed(2) + ' km²' }
 
 onUnmounted(() => {

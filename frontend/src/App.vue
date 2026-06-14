@@ -1,5 +1,7 @@
 <template>
+  <!-- 应用根布局：顶部导航栏 + 地图内容区 -->
   <a-layout class="app-root">
+    <!-- 顶栏：系统标题与运行状态 -->
     <a-layout-header class="app-header">
       <div class="header-left">
         <div class="header-logo">
@@ -18,6 +20,7 @@
       </div>
     </a-layout-header>
     <a-layout-content class="app-content">
+      <!-- 路由视图：地图页面 -->
       <router-view />
     </a-layout-content>
   </a-layout>
@@ -87,6 +90,7 @@ import { SafetyCertificateOutlined } from '@ant-design/icons-vue'
   align-items: center;
 }
 
+/* 系统运行状态指示灯 */
 .header-status {
   display: flex;
   align-items: center;
@@ -105,6 +109,7 @@ import { SafetyCertificateOutlined } from '@ant-design/icons-vue'
   animation: pulse-dot 2s ease infinite;
 }
 
+/* 状态点呼吸动画 */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }

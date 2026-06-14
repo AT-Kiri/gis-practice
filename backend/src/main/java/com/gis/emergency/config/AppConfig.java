@@ -6,9 +6,14 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
 
+/**
+ * 应用通用配置
+ * 主要提供 RestTemplate Bean，用于后端调用 iServer REST API
+ */
 @Configuration
 public class AppConfig {
 
+    /** 创建 RestTemplate，设置连接超时 5 秒、读取超时 30 秒 */
     @Bean
     public RestTemplate restTemplate() {
         var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();

@@ -6,6 +6,10 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+/**
+ * 空间分析接口
+ * 提供缓冲区分析和叠置分析两类空间分析功能
+ */
 @RestController
 @RequestMapping("/api/spatial-analysis")
 public class SpatialAnalysisController {
@@ -16,6 +20,10 @@ public class SpatialAnalysisController {
         this.service = service;
     }
 
+    /**
+     * 缓冲区分析：对绘制的几何对象生成指定半径的缓冲区
+     * @param params 包含 geometry（源几何）、distance（缓冲半径）、unit（单位）
+     */
     @PostMapping("/buffer")
     public R<Map<String, Object>> buffer(@RequestBody Map<String, Object> params) {
         Object geometry = params.get("geometry");
@@ -29,6 +37,10 @@ public class SpatialAnalysisController {
         return service.buffer(geometry, distance, unit);
     }
 
+    /**
+     * 叠置分析：对两个数据集执行并集/交集/擦除/裁剪操作
+     * @param params 包含 sourceDataset、operateDataset、operation
+     */
     @PostMapping("/overlay")
     public R<Map<String, Object>> overlay(@RequestBody Map<String, Object> params) {
         String source = (String) params.get("sourceDataset");

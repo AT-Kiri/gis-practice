@@ -7,6 +7,10 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 网络分析接口
+ * 基于长春市路网数据，提供最短路径分析和服务区分析功能
+ */
 @RestController
 @RequestMapping("/api/network")
 public class NetworkAnalysisController {
@@ -17,6 +21,10 @@ public class NetworkAnalysisController {
         this.service = service;
     }
 
+    /**
+     * 最短路径分析
+     * @param params 包含 points（途经点列表）和 weightField（权重字段）
+     */
     @PostMapping("/shortest-path")
     public R<Map<String, Object>> shortestPath(@RequestBody Map<String, Object> params) {
         @SuppressWarnings("unchecked")
@@ -29,11 +37,19 @@ public class NetworkAnalysisController {
         return service.shortestPath(points, weightField);
     }
 
+    /**
+     * 获取 RoadNet 路网矢量化数据（用于前端叠加显示）
+     * @param limit 返回要素数量上限
+     */
     @GetMapping("/road-network")
-    public R<Map<String, Object>> roadNetwork(@RequestParam(defaultValue = "300") int limit) {
+    public R<Map<String, Object>> roadNetwork(@RequestParam(defaultValue = "2000") int limit) {
         return service.getRoadNetwork(limit);
     }
 
+    /**
+     * 服务区分析
+     * @param params 包含 center（中心点）、weights（半径列表）、weightField（权重字段）
+     */
     @PostMapping("/service-area")
     public R<Map<String, Object>> serviceArea(@RequestBody Map<String, Object> params) {
         @SuppressWarnings("unchecked")

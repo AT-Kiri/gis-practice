@@ -1,21 +1,22 @@
 <template>
+  <!-- 应用主布局：左侧导航 + 右侧地图 -->
   <div class="app-layout">
-    <!-- Left Navigation Sidebar -->
+    <!-- 左侧导航侧栏 -->
     <NavSidebar
       :active-key="activeKey"
       @update:active-key="onSidebarChange"
     />
 
-    <!-- Map Area -->
+    <!-- 地图区域 -->
     <div class="map-container" ref="mapContainer">
       <div id="map" class="map-wrapper"></div>
 
-      <!-- Loading -->
+      <!-- 加载中状态 -->
       <div v-if="store.isLoading" class="map-loading">
         <a-spin :spinning="true" tip="地图加载中..." />
       </div>
 
-      <!-- Error -->
+      <!-- 加载失败状态 -->
       <div v-if="store.isError" class="map-error">
         <a-result
           status="warning"
@@ -28,44 +29,36 @@
         </a-result>
       </div>
 
-      <!-- Map Toolbar (always visible) -->
+      <!-- 地图工具条（始终可见） -->
       <MapToolbar v-if="!store.isError && store.mapInstance" />
 
-      <!-- Spatial Query -->
+      <!-- 各功能面板：根据 activeKey 条件渲染 -->
       <SpatialQuery
         v-if="!store.isError && store.mapInstance && activeKey === 'spatial-query'"
       />
-
-      <!-- Map Measure -->
       <MapMeasure
         v-if="!store.isError && store.mapInstance && activeKey === 'measure'"
       />
-
-      <!-- Feature Search -->
       <FeatureSearch
         v-if="!store.isError && store.mapInstance && activeKey === 'thematic-search'"
         @close="activeKey = null"
       />
-
-      <!-- Spatial Analysis -->
       <SpatialAnalysis
         v-if="!store.isError && store.mapInstance && activeKey === 'spatial-analysis'"
         @close="activeKey = null"
       />
-
-      <!-- Network Analysis -->
       <NetworkAnalysis
         v-if="!store.isError && store.mapInstance && activeKey === 'network-analysis'"
         @close="activeKey = null"
       />
 
-      <!-- Layer Manager -->
+      <!-- 图层管理器：通过 v-model 控制显隐，不占用 activeKey -->
       <LayerManager
         v-if="!store.isError && store.mapInstance"
         v-model:visible="layerPanelVisible"
       />
 
-      <!-- Map Overview -->
+      <!-- 鹰眼视图 -->
       <MapOverview
         v-if="!store.isError && store.mapInstance"
         :visible="activeKey === 'overview'"
@@ -96,10 +89,13 @@ const layerPanelVisible = ref(false)
 
 let resizeObserver = null
 
+/**
+ * 侧栏菜单切换回调
+ * 图层管理器特殊处理：通过 v-model:visible 控制，不占用 activeKey
+ */
 function onSidebarChange(key) {
   if (key === 'layer-manager') {
     layerPanelVisible.value = !layerPanelVisible.value
-    // Don't keep activeKey as 'layer-manager' since it's not a toggle panel
     if (activeKey.value === 'layer-manager') {
       activeKey.value = null
     }
@@ -108,6 +104,7 @@ function onSidebarChange(key) {
   }
 }
 
+/** 初始化 MapboxGL 地图 */
 function loadMap() {
   store.clearError()
   store.setLoading(true)
@@ -117,6 +114,7 @@ function loadMap() {
       container: 'map',
       style: {
         version: 8,
+        // 数据源：世界底图 + 京津冀专题图（均为 iServer 瓦片服务）
         sources: {
           'world': {
             type: 'raster',
@@ -130,27 +128,16 @@ function loadMap() {
           },
         },
         layers: [
-          {
-            id: 'world-layer',
-            type: 'raster',
-            source: 'world',
-            minzoom: 0,
-            maxzoom: 22,
-          },
-          {
-            id: 'jingjin-layer',
-            type: 'raster',
-            source: 'jingjin',
-            minzoom: 0,
-            maxzoom: 22,
-          },
+          { id: 'world-layer', type: 'raster', source: 'world', minzoom: 0, maxzoom: 22 },
+          { id: 'jingjin-layer', type: 'raster', source: 'jingjin', minzoom: 0, maxzoom: 22 },
         ],
       },
-      center: [116.4, 39.9],
+      center: [116.4, 39.9], // 京津冀区域中心
       zoom: 8,
       attributionControl: false,
     })
 
+    // 地图加载完成：更新 Store 状态
     map.on('load', () => {
       store.setMap(map)
       store.setLayers([
@@ -159,11 +146,12 @@ function loadMap() {
       ])
     })
 
+    // 地图错误日志
     map.on('error', (e) => {
-      console.error('Map error:', e)
+      console.error('地图错误:', e)
     })
 
-    // Resize handler
+    // 监听容器尺寸变化，自动触发 map.resize()
     resizeObserver = new ResizeObserver(() => map.resize())
     resizeObserver.observe(mapContainer.value)
 
@@ -172,6 +160,7 @@ function loadMap() {
   }
 }
 
+/** 重新加载地图（错误重试） */
 function retryLoadMap() {
   loadMap()
 }
@@ -181,6 +170,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // 清理 ResizeObserver，防止内存泄漏
   if (resizeObserver) {
     resizeObserver.disconnect()
     resizeObserver = null

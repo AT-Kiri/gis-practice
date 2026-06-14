@@ -1,6 +1,7 @@
 <template>
+  <!-- 左侧导航侧栏：以图标按钮形式提供各功能模块的入口 -->
   <div class="nav-sidebar">
-    <!-- Logo / Brand -->
+    <!-- Logo / 品牌标识 -->
     <div class="nav-brand">
       <div class="brand-icon">
         <SafetyOutlined />
@@ -13,7 +14,7 @@
 
     <div class="nav-divider" />
 
-    <!-- Menu Items -->
+    <!-- 菜单项列表 -->
     <div class="nav-menu">
       <div
         v-for="item in menuItems"
@@ -30,10 +31,10 @@
         <span class="nav-item-label">{{ item.label }}</span>
       </div>
 
-      <!-- Spacer -->
+      <!-- 弹性间距 -->
       <div class="nav-spacer" />
 
-      <!-- Collapse Toggle -->
+      <!-- 收起侧栏按钮 -->
       <div class="nav-item nav-item--bottom" @click="$emit('toggleCollapse')">
         <a-tooltip title="收起侧栏" placement="right">
           <div class="nav-item-inner">
@@ -54,12 +55,15 @@ import {
 } from '@ant-design/icons-vue'
 
 const props = defineProps({
+  /** 当前激活的菜单项 key */
   activeKey: { type: String, default: null },
+  /** 侧栏是否折叠 */
   collapsed: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:activeKey', 'toggleCollapse'])
 
+/** 菜单项配置：key 对应功能标识，label 为展示名称，icon 为对应图标组件 */
 const menuItems = [
   { key: 'map-tools', label: '地图工具', icon: ToolOutlined },
   { key: 'spatial-query', label: '空间查询', icon: SearchOutlined },
@@ -71,6 +75,10 @@ const menuItems = [
   { key: 'overview', label: '鹰眼视图', icon: EyeOutlined },
 ]
 
+/**
+ * 切换菜单项：点击已激活的项则关闭，否则激活新项
+ * 图层管理器特殊处理：通过 v-model:visible 控制显隐，不占用 activeKey
+ */
 function toggleItem(key) {
   emit('update:activeKey', props.activeKey === key ? null : key)
 }
@@ -91,7 +99,7 @@ function toggleItem(key) {
   user-select: none;
 }
 
-/* ---- Brand ---- */
+/* ---- 品牌标识区 ---- */
 .nav-brand {
   display: flex;
   flex-direction: column;
@@ -139,7 +147,7 @@ function toggleItem(key) {
   letter-spacing: 0.5px;
 }
 
-/* ---- Divider ---- */
+/* ---- 分割线 ---- */
 .nav-divider {
   width: 32px;
   height: 1px;
@@ -147,7 +155,7 @@ function toggleItem(key) {
   margin: 4px 0 8px;
 }
 
-/* ---- Menu ---- */
+/* ---- 菜单项 ---- */
 .nav-menu {
   flex: 1;
   display: flex;

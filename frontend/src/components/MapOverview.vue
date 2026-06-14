@@ -1,4 +1,5 @@
 <template>
+  <!-- 鹰眼视图（小地图）：显示主地图在全球范围内的位置矩形 -->
   <div v-show="visible" id="map-overview" class="map-overview-wrap"></div>
 </template>
 
@@ -14,10 +15,11 @@ const props = defineProps({
 
 const store = useMapStore()
 
-let overviewMap = null
-let rectSource = null
-let mainMoveHandler = null // 保存引用以便移除
+let overviewMap = null       // 鹰眼地图实例
+let rectSource = null         // 鹰眼矩形数据源
+let mainMoveHandler = null    // 主地图 move 事件处理器引用，用于 cleanup
 
+/** 创建鹰眼地图 */
 function createOverview() {
   const mainMap = store.mapInstance
   if (!mainMap) return
@@ -33,17 +35,10 @@ function createOverview() {
           tileSize: TILE_SIZE,
         },
       },
-      layers: [{
-        id: 'world-bg',
-        type: 'background',
-        paint: { 'background-color': '#e8e8e8' },
-      }, {
-        id: 'world-layer',
-        type: 'raster',
-        source: 'world',
-        minzoom: 0,
-        maxzoom: 22,
-      }],
+      layers: [
+        { id: 'world-bg', type: 'background', paint: { 'background-color': '#e8e8e8' } },
+        { id: 'world-layer', type: 'raster', source: 'world', minzoom: 0, maxzoom: 22 },
+      ],
     },
     center: [116.4, 39.9],
     zoom: mainMap.getZoom(),
@@ -56,7 +51,7 @@ function createOverview() {
   })
 
   overviewMap.on('load', () => {
-    // Add extent rectangle source
+    // 添加主地图视口范围矩形
     overviewMap.addSource('extent', {
       type: 'geojson',
       data: emptyRect(),
@@ -79,19 +74,20 @@ function createOverview() {
   })
 
   overviewMap.on('error', (e) => {
-    console.error('Overview map error:', e.error ? e.error.message : e)
+    console.error('鹰眼地图错误:', e.error ? e.error.message : e)
   })
 
-  // Update rectangle on main map move — 保存引用以便后续移除
+  // 监听主地图移动，同步更新鹰眼矩形
   mainMoveHandler = updateExtent
   mainMap.on('move', mainMoveHandler)
 
-  // Click overview to re-center main
+  // 点击鹰眼地图可让主地图跳转
   overviewMap.on('click', (e) => {
     mainMap.flyTo({ center: e.lngLat, duration: 300 })
   })
 }
 
+/** 销毁鹰眼地图，清理事件监听 */
 function destroyOverview() {
   if (overviewMap) {
     overviewMap.remove()
@@ -108,6 +104,7 @@ function destroyOverview() {
   }
 }
 
+/** 更新鹰眼矩形：根据主地图当前视口范围绘制蓝色矩形 */
 function updateExtent() {
   if (!rectSource) return
   const mainMap = store.mapInstance
@@ -132,10 +129,10 @@ function emptyRect() {
   return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[]] } }
 }
 
-// 拆分为两个独立 watch，清晰控制创建和销毁逻辑
+// 可视状态变化时创建或销毁鹰眼视图
 watch(() => props.visible && store.mapInstance, (show) => {
   if (show && !overviewMap) {
-    setTimeout(createOverview, 400)
+    setTimeout(createOverview, 400)  // 等待主地图渲染完成
   } else if (!show) {
     destroyOverview()
   }

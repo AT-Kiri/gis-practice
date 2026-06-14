@@ -137,31 +137,43 @@ import mapboxgl from 'mapbox-gl'
 const emit = defineEmits(['close'])
 const store = useMapInstance()
 
-// ---- State ----
+// ==================== 组件状态 ====================
+
+/** 当前标签页：buffer | overlay */
 const tabKey = ref('buffer')
+/** 是否正在分析中 */
 const loading = ref(false)
+/** 缓冲区半径（米） */
 const bufferDistance = ref(500)
+/** 是否有分析结果 */
 const hasResult = ref(false)
 
-// Drawing state
-const drawMode = ref(null)        // null | 'point' | 'line' | 'polygon'
-let drawnGeo = ref(null)          // The drawn GeoJSON geometry
+// 绘制状态
+/** 当前绘制模式：null | 'point' | 'line' | 'polygon' */
+const drawMode = ref(null)
+/** 已绘制的几何对象（GeoJSON Geometry） */
+let drawnGeo = ref(null)
+/** 是否正在绘制中 */
 let isDrawing = false
+/** 当前绘制中的临时点列表 */
 let tempPoints = []
+/** 事件监听器列表，用于清理 */
 let drawListeners = []
 
-// Overlay state
+// 叠置分析参数
 const overlaySource = ref('Landuse_R@Jingjin')
 const overlayOperate = ref('Geomor_R@Jingjin')
 const overlayOperation = ref('UNION')
 
-// Map source/layer names
+// 图层 Source 名称
 const DRAW_SOURCE = 'sa-draw'
 const RESULT_SOURCE = 'sa-result'
 
-// ---- Helpers ----
+// ==================== 辅助函数 ====================
+
 function getMap() { return store.mapInstance }
 
+/** 确保绘制和结果的 Source/Layer 已创建 */
 function ensureLayer() {
   const map = getMap()
   if (!map) return
@@ -187,6 +199,7 @@ function ensureLayer() {
 
 function emptyFC() { return { type: 'FeatureCollection', features: [] } }
 
+/** 安全设置数据源内容 */
 function setSource(src, features) {
   const map = getMap()
   if (!map) return
@@ -197,7 +210,12 @@ function useMapInstance() {
   return useMapStore()
 }
 
-// ---- Drawing ----
+// ==================== 绘制功能 ====================
+
+/**
+ * 设置绘制模式
+ * 点击已激活的模式取消，否则激活新模式
+ */
 function setDrawMode(mode) {
   clearDrawListeners()
   if (drawMode.value === mode) { drawMode.value = null; return }
@@ -213,12 +231,14 @@ function setDrawMode(mode) {
     map.on('click', onDrawClick)
     drawListeners.push(['click', onDrawClick])
   } else {
+    // 线和面需要双击完成绘制
     map.on('click', onDrawClick)
     map.on('dblclick', onDrawDblClick)
     drawListeners.push(['click', onDrawClick], ['dblclick', onDrawDblClick])
   }
 }
 
+/** 点击添加绘制点 */
 function onDrawClick(e) {
   const map = getMap()
   if (!map) return
@@ -233,16 +253,17 @@ function onDrawClick(e) {
 
   tempPoints.push(pt)
   if (tempPoints.length === 1 && drawMode.value === 'line') {
-    // Just started
+    // 线模式：刚点击第一个点，等后续点
   }
   updateTempDraw()
 }
 
+/** 双击完成绘制（线/面） */
 function onDrawDblClick(e) {
   const map = getMap()
   if (!map) return
-  // Finalize: close polygon if needed
   if (drawMode.value === 'polygon' && tempPoints.length >= 3) {
+    // 闭合多边形
     const coords = [...tempPoints, tempPoints[0]]
     const geo = { type: 'Polygon', coordinates: [coords] }
     drawnGeo.value = geo
@@ -257,6 +278,7 @@ function onDrawDblClick(e) {
   drawMode.value = null
 }
 
+/** 更新临时绘制图形 */
 function updateTempDraw() {
   if (tempPoints.length < 1) return
   if (drawMode.value === 'line' && tempPoints.length >= 1) {
@@ -269,6 +291,7 @@ function updateTempDraw() {
   }
 }
 
+/** 清除绘制事件监听 */
 function clearDrawListeners() {
   const map = getMap()
   if (!map) return
@@ -277,6 +300,7 @@ function clearDrawListeners() {
   map.getCanvas().style.cursor = ''
 }
 
+/** 清除绘制内容 */
 function clearDraw() {
   clearDrawListeners()
   drawMode.value = null
@@ -285,7 +309,9 @@ function clearDraw() {
   setSource(DRAW_SOURCE, [])
 }
 
-// ---- Execute Buffer ----
+// ==================== 缓冲区分析 ====================
+
+/** 执行缓冲区分析 */
 async function execBuffer() {
   if (!drawnGeo.value) return
   loading.value = true
@@ -300,13 +326,15 @@ async function execBuffer() {
       hasResult.value = true
     }
   } catch (err) {
-    console.error('Buffer analysis failed:', err)
+    console.error('缓冲区分析失败:', err)
   } finally {
     loading.value = false
   }
 }
 
-// ---- Execute Overlay ----
+// ==================== 叠置分析 ====================
+
+/** 执行叠置分析 */
 async function execOverlay() {
   loading.value = true
   try {
@@ -320,25 +348,25 @@ async function execOverlay() {
       hasResult.value = true
     }
   } catch (err) {
-    console.error('Overlay analysis failed:', err)
+    console.error('叠置分析失败:', err)
   } finally {
     loading.value = false
   }
 }
 
-// ---- Show Result ----
+// ==================== 结果显示 ====================
+
+/** 在地图上展示分析结果 */
 function showResult(data) {
   const map = getMap()
   if (!map) return
   clearResult()
 
-  // Try different response formats
+  // 兼容不同响应格式
   let features = null
   if (data.recordset && data.recordset.features) {
-    // Format: { recordset: { features: FeatureCollection } }
     features = data.recordset.features
   } else if (data.resultGeometry) {
-    // Format: { resultGeometry: GeoJSON geometry }
     features = { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: data.resultGeometry }] }
   } else if (data.features) {
     features = data.features
@@ -347,7 +375,8 @@ function showResult(data) {
   if (!features) return
 
   setSource(RESULT_SOURCE, features.type === 'FeatureCollection' ? features.features : [features])
-  // Zoom to result
+
+  // 缩放到结果范围
   const bounds = new mapboxgl.LngLatBounds()
   const allFeatures = features.type === 'FeatureCollection' ? features.features : [features]
   allFeatures.forEach(f => {
@@ -361,12 +390,13 @@ function showResult(data) {
   if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 50, maxZoom: 14 })
 }
 
+/** 清除分析结果 */
 function clearResult() {
   setSource(RESULT_SOURCE, [])
   hasResult.value = false
 }
 
-// ---- Clear All ----
+/** 清除所有（绘制+结果） */
 function clearAll() {
   clearDraw()
   clearResult()

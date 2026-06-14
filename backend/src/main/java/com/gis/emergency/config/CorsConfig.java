@@ -8,6 +8,10 @@ import org.springframework.web.filter.CorsFilter;
 
 import java.util.List;
 
+/**
+ * 跨域配置（CORS）
+ * 允许 localhost 开发环境的前端跨域访问后端 API
+ */
 @Configuration
 public class CorsConfig {
 
@@ -19,8 +23,11 @@ public class CorsConfig {
                 "http://localhost:*",
                 "http://127.0.0.1:*"
         ));
+        // 允许的 HTTP 方法
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        // 允许所有请求头
         config.setAllowedHeaders(List.of("*"));
+        // 允许携带凭证（Cookie / Authorization 头）
         config.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

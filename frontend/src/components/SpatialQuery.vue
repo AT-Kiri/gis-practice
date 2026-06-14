@@ -127,15 +127,23 @@ import mapboxgl from 'mapbox-gl'
 
 const store = useMapStore()
 
-// ---- State ----
-const mode = ref(null)          // null | 'point' | 'rect' | 'circle'
+// ==================== 组件状态 ====================
+
+/** 当前绘制模式：null | 'point' | 'rect' | 'circle' */
+const mode = ref(null)
+/** 是否正在查询中 */
 const loading = ref(false)
+/** 错误信息 */
 const errorMsg = ref('')
+/** 是否显示结果面板 */
 const showPanel = ref(false)
+/** 当前页码 */
 const currentPage = ref(1)
 const pageSize = 10
+/** 鼠标悬停的要素 ID */
 const hoveredId = ref(null)
 
+/** 查询结果数据 */
 const results = reactive({
   total: 0,
   datasetCounts: {},
@@ -143,27 +151,35 @@ const results = reactive({
   elapsed: 0,
 })
 
+/** 当前页的要素列表（计算属性） */
 const paginatedItems = computed(() => {
   const start = (currentPage.value - 1) * pageSize
   return results.features.slice(start, start + pageSize)
 })
 
-// ---- Drawing state ----
+// ==================== 地图图层常量 ====================
+
+/** 绘制中的选择框状态 */
 let drawState = null  // { type, startPoint, currentPoint, center, radius }
-const SELECTION_SOURCE = 'sq-selection'
-const RESULT_POINT_SOURCE = 'sq-result-points'
-const RESULT_LINE_SOURCE = 'sq-result-lines'
-const RESULT_POLY_SOURCE = 'sq-result-polys'
-const HIGHLIGHT_SOURCE = 'sq-highlight'
+
+// 各图层 Source 名称
+const SELECTION_SOURCE = 'sq-selection'       // 选择范围图形
+const RESULT_POINT_SOURCE = 'sq-result-points' // 点要素查询结果
+const RESULT_LINE_SOURCE = 'sq-result-lines'   // 线要素查询结果
+const RESULT_POLY_SOURCE = 'sq-result-polys'   // 面要素查询结果
+const HIGHLIGHT_SOURCE = 'sq-highlight'         // 高亮要素
 
 let resultMarkers = []
 let popup = null
 
-// ---- Init / Cleanup layers ----
+// ==================== 图层初始化 ====================
+
+/** 确保所有查询所需的 Source 和 Layer 已创建 */
 function ensureSources() {
   const map = store.mapInstance
   if (!map) return
 
+  // 定义所有查询相关图层
   const layers = [
     { id: 'sq-selection-fill', source: SELECTION_SOURCE, type: 'fill',
       paint: { 'fill-color': '#1890ff', 'fill-opacity': 0.15 } },
@@ -185,6 +201,7 @@ function ensureSources() {
       paint: { 'circle-color': '#ff4d4f', 'circle-radius': 8, 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } },
   ]
 
+  // 创建数据源和图层（如不存在）
   sources().forEach(src => {
     if (!map.getSource(src.id)) {
       map.addSource(src.id, { type: 'geojson', data: emptyFC() })
@@ -211,6 +228,7 @@ function emptyFC() {
   return { type: 'FeatureCollection', features: [] }
 }
 
+/** 安全设置数据源内容 */
 function setSourceData(sourceId, features) {
   const map = store.mapInstance
   if (!map) return
@@ -219,7 +237,12 @@ function setSourceData(sourceId, features) {
   } catch (e) { /* ignore */ }
 }
 
-// ---- Mode management ----
+// ==================== 绘制模式管理 ====================
+
+/**
+ * 切换绘制模式
+ * 点击已激活的模式则关闭，否则切换到新模式
+ */
 function toggleMode(newMode) {
   if (mode.value === newMode) {
     deactivateDrawMode()
@@ -230,10 +253,13 @@ function toggleMode(newMode) {
   activateDrawMode()
 }
 
+/** 激活绘制模式：设置光标样式、禁用地图平移、注册地图事件 */
 function activateDrawMode() {
   const map = store.mapInstance
   if (!map) return
   map.getCanvas().style.cursor = 'crosshair'
+  // 禁用地图平移，避免与绘制拖拽冲突
+  map.dragPan.disable()
   ensureSources()
   drawState = null
 
@@ -249,10 +275,13 @@ function activateDrawMode() {
   }
 }
 
+/** 停用绘制模式：恢复地图交互，移除事件监听 */
 function deactivateDrawMode() {
   const map = store.mapInstance
   if (!map) return
   map.getCanvas().style.cursor = ''
+  // 恢复地图平移
+  try { map.dragPan.enable() } catch (e) { /* ignore */ }
   map.off('click', onPointClick)
   map.off('mousedown', onRectMouseDown)
   map.off('mousemove', onRectMouseMove)
@@ -260,13 +289,15 @@ function deactivateDrawMode() {
   map.off('click', onCircleClick)
   map.off('mousemove', onCircleMouseMove)
 
-  // Clear selection graphic
+  // 清除选择框图形
   setSourceData(SELECTION_SOURCE, [])
   drawState = null
   mode.value = null
 }
 
-// ---- Point mode ----
+// ==================== 点选模式 ====================
+
+/** 点击点选：以点击位置为中心构建 500m 缓冲区，执行空间查询 */
 function onPointClick(e) {
   const lng = e.lngLat.lng
   const lat = e.lngLat.lat
@@ -280,7 +311,8 @@ function onPointClick(e) {
   doQuery({ type: 'Polygon', coordinates: [circle] })
 }
 
-// ---- Rectangle mode ----
+// ==================== 矩形框选模式 ====================
+
 function onRectMouseDown(e) {
   drawState = { type: 'rect', start: [e.lngLat.lng, e.lngLat.lat], current: [e.lngLat.lng, e.lngLat.lat] }
 }
@@ -306,6 +338,7 @@ function onRectMouseUp(e) {
   drawState = null
 }
 
+/** 更新矩形预览图形 */
 function updateRectPreview() {
   if (!drawState || drawState.type !== 'rect') return
   const [x1, y1] = drawState.start
@@ -319,7 +352,9 @@ function updateRectPreview() {
   }])
 }
 
-// ---- Circle mode ----
+// ==================== 圆形框选模式 ====================
+
+/** 第一次点击设圆心，第二次点击确定半径 */
 function onCircleClick(e) {
   if (!drawState) {
     // First click: set center
@@ -336,6 +371,7 @@ function onCircleClick(e) {
   }
 }
 
+/** 鼠标移动时实时更新圆形半径 */
 function onCircleMouseMove(e) {
   if (!drawState || drawState.type !== 'circle' || !drawState.center) return
   const [cx, cy] = drawState.center
@@ -350,7 +386,14 @@ function onCircleMouseMove(e) {
   }])
 }
 
-// ---- Utilities ----
+// ==================== 工具函数 ====================
+
+/**
+ * 构建圆形缓冲区坐标数组（近似圆形多边形）
+ * @param {number[]} center - 圆心 [lng, lat]
+ * @param {number} radiusMeters - 半径（米）
+ * @returns {number[][]} 多边形顶点坐标数组
+ */
 function buildBufferCircle(center, radiusMeters) {
   const [cx, cy] = center
   const segments = 32
@@ -368,6 +411,7 @@ function buildBufferCircle(center, radiusMeters) {
   return points
 }
 
+/** 根据几何类型返回对应标签颜色 */
 function typeColor(geometry) {
   if (!geometry) return 'default'
   const t = geometry.type || ''
@@ -377,6 +421,7 @@ function typeColor(geometry) {
   return 'default'
 }
 
+/** 根据几何类型返回中文标签 */
 function typeLabel(geometry) {
   if (!geometry) return '?'
   const t = geometry.type || ''
@@ -386,7 +431,12 @@ function typeLabel(geometry) {
   return '?'
 }
 
-// ---- Query ----
+// ==================== 空间查询 ====================
+
+/**
+ * 执行空间查询：向后端发送几何图形，查询所有相交要素
+ * @param {object} geometry - GeoJSON 几何对象
+ */
 async function doQuery(geometry) {
   const map = store.mapInstance
   if (!map) return
@@ -422,11 +472,13 @@ async function doQuery(geometry) {
   }
 }
 
-// ---- Named cursor handlers (for proper cleanup) ----
+// 命名光标处理器（用于事件绑定/解绑）
 function cursorPointer() { const m = store.mapInstance; if (m) m.getCanvas().style.cursor = 'pointer' }
 function cursorDefault() { const m = store.mapInstance; if (m) m.getCanvas().style.cursor = '' }
 
-// ---- Display results on map ----
+// ==================== 结果显示 ====================
+
+/** 在地图上展示查询结果，按点/线/面分类渲染 */
 function displayResults(features) {
   const map = store.mapInstance
   if (!map) return
@@ -457,7 +509,7 @@ function displayResults(features) {
   setSourceData(RESULT_LINE_SOURCE, lineFeatures)
   setSourceData(RESULT_POLY_SOURCE, polyFeatures)
 
-  // Click on result features to show popup
+  // 注册结果要素的点击事件（显示详情弹窗）
   if (pointFeatures.length) {
     map.on('click', 'sq-result-point-circle', onResultClick)
   }
@@ -470,7 +522,7 @@ function displayResults(features) {
     map.on('click', 'sq-result-outline', onResultClick)
   }
 
-  // Cursor — 使用命名函数，确保可以移除
+  // 注册悬停光标变化
   map.on('mouseenter', 'sq-result-point-circle', cursorPointer)
   map.on('mouseleave', 'sq-result-point-circle', cursorDefault)
   map.on('mouseenter', 'sq-result-line', cursorPointer)
@@ -479,6 +531,7 @@ function displayResults(features) {
   map.on('mouseleave', 'sq-result-fill', cursorDefault)
 }
 
+/** 清除结果显示：清空数据源、移除事件监听、清理弹窗 */
 function clearResultDisplay() {
   const map = store.mapInstance
   if (!map) return
@@ -493,7 +546,7 @@ function clearResultDisplay() {
   map.off('click', 'sq-result-fill', onResultClick)
   map.off('click', 'sq-result-outline', onResultClick)
 
-  // 移除 mouseenter/mouseleave 监听，防止内存泄漏
+  // 移除鼠标悬停事件，防止内存泄漏
   map.off('mouseenter', 'sq-result-point-circle', cursorPointer)
   map.off('mouseleave', 'sq-result-point-circle', cursorDefault)
   map.off('mouseenter', 'sq-result-line', cursorPointer)
@@ -501,15 +554,17 @@ function clearResultDisplay() {
   map.off('mouseenter', 'sq-result-fill', cursorPointer)
   map.off('mouseleave', 'sq-result-fill', cursorDefault)
 
-  // Remove markers
+  // 清除 Marker
   resultMarkers.forEach(m => { try { m.remove() } catch(e) {} })
   resultMarkers = []
 
-  // Remove popup
+  // 清除弹窗
   if (popup) { popup.remove(); popup = null }
 }
 
-// ---- Result click handler ----
+// ==================== 结果交互 ====================
+
+/** 点击结果要素时显示详情弹窗 */
 function onResultClick(e) {
   const map = store.mapInstance
   if (!map || !e.features || !e.features.length) return
@@ -518,6 +573,7 @@ function onResultClick(e) {
   showPopup(feature.geometry.coordinates, props)
 }
 
+/** 显示要素详情弹窗 */
 function showPopup(coords, props) {
   const map = store.mapInstance
   if (!map) return
@@ -541,10 +597,10 @@ function showPopup(coords, props) {
   html += '</table></div>'
   container.innerHTML = html
 
-  // Get a display coordinate
+  // 获取合适的显示坐标
   let coord = coords
-  if (Array.isArray(coord) && Array.isArray(coord[0])) coord = coord[0]  // polygon/line
-  if (Array.isArray(coord) && Array.isArray(coord[0])) coord = coord[0]  // multi
+  if (Array.isArray(coord) && Array.isArray(coord[0])) coord = coord[0]
+  if (Array.isArray(coord) && Array.isArray(coord[0])) coord = coord[0]
 
   popup = new mapboxgl.Popup({ closeOnClick: true, maxWidth: '320px' })
     .setLngLat(coord)
@@ -552,39 +608,35 @@ function showPopup(coords, props) {
     .addTo(map)
 }
 
-// ---- Highlight / Hover ----
+// ==================== 高亮与聚焦 ====================
+
+/** 鼠标悬停时高亮要素 */
 function highlightFeature(item) {
   const map = store.mapInstance
   if (!map) return
-
   const geo = toGeoJSON(item.geometry)
   if (!geo) return
   hoveredId.value = item.smid + '-' + item.dataset
-
-  setSourceData(HIGHLIGHT_SOURCE, [{
-    type: 'Feature',
-    geometry: geo,
-  }])
+  setSourceData(HIGHLIGHT_SOURCE, [{ type: 'Feature', geometry: geo }])
 }
 
+/** 取消高亮 */
 function unhighlightFeature() {
   hoveredId.value = null
   setSourceData(HIGHLIGHT_SOURCE, [])
 }
 
+/** 点击要素时聚焦并显示详情 */
 function focusFeature(item) {
   const map = store.mapInstance
   if (!map) return
-
   const geo = toGeoJSON(item.geometry)
   if (!geo) return
 
-  // Fly to feature
   let center
   if (geo.type === 'Point') {
     center = geo.coordinates
   } else if (geo.coordinates && geo.coordinates.length) {
-    // Get centroid or first point
     const allCoords = geo.coordinates.flat(2)
     if (allCoords.length >= 2) {
       center = [allCoords[0], allCoords[1]]
@@ -595,7 +647,6 @@ function focusFeature(item) {
     map.flyTo({ center, zoom: Math.max(map.getZoom(), 11), duration: 400 })
   }
 
-  // Show popup
   showPopup(center || (geo.coordinates && geo.coordinates[0]), {
     _displayName: item.displayName,
     _dataset: item.datasetName,
@@ -603,7 +654,9 @@ function focusFeature(item) {
   })
 }
 
-// ---- Clear all ----
+// ==================== 清除全部 ====================
+
+/** 清除所有查询结果和绘制状态 */
 function clearAll() {
   deactivateDrawMode()
   clearResultDisplay()
@@ -616,7 +669,8 @@ function clearAll() {
   loading.value = false
 }
 
-// ---- Lifecycle ----
+// ==================== 生命周期 ====================
+
 onUnmounted(() => {
   clearAll()
 })

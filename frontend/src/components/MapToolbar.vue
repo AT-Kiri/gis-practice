@@ -1,4 +1,5 @@
 <template>
+  <!-- 地图操作工具条：缩放和全幅显示，始终悬浮在地图左上方 -->
   <div class="map-toolbar">
     <a-tooltip title="放大" placement="right">
       <a-button class="tool-btn" @click="zoomIn">
@@ -24,16 +25,19 @@ import { useMapStore } from '../stores/map'
 
 const store = useMapStore()
 
+/** 放大一级 */
 function zoomIn() {
   const map = store.mapInstance
   if (map) map.zoomIn({ duration: 300 })
 }
 
+/** 缩小一级 */
 function zoomOut() {
   const map = store.mapInstance
   if (map) map.zoomOut({ duration: 300 })
 }
 
+/** 飞回京津冀区域全幅视图 */
 function fullExtent() {
   const map = store.mapInstance
   if (map) {

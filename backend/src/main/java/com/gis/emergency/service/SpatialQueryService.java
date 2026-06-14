@@ -15,34 +15,42 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
+/**
+ * 空间查询服务
+ * 当用户在地图上绘制几何图形（点/矩形/圆形）后，
+ * 通过 iServer Data 服务的 REST API 并发查询所有地理数据集中与该图形相交的要素。
+ */
 @Service
 public class SpatialQueryService {
 
     private static final Logger log = LoggerFactory.getLogger(SpatialQueryService.class);
 
+    /** iServer 基础地址 */
     @Value("${iserver.base-url}")
     private String iserverBaseUrl;
 
+    /** 数据服务名称 */
     @Value("${iserver.data-service}")
     private String dataService;
 
+    /** 数据源名称（如 Jingjin） */
     @Value("${iserver.datasource}")
     private String datasource;
 
     private final RestTemplate restTemplate;
 
-    // IO 密集型任务，使用独立线程池避免占用 ForkJoinPool
+    /** IO 密集型任务，使用独立线程池避免占用 ForkJoinPool */
     private static final ExecutorService IO_EXECUTOR = Executors.newFixedThreadPool(9);
 
-    // Spatial query modes for iServer
+    /** iServer 空间查询模式：INTERSECT（相交查询） */
     private static final String SPATIAL_QUERY_MODE = "INTERSECT";
 
-    // Datasets to query
+    /** 需要查询的所有数据集列表 */
     public static final List<String> DATASETS = List.of(
             "County_P", "Town_P", "Road_L", "Railway_L",
             "River_L", "Lake_R", "Landuse_R", "Geomor_R", "Coastline_L");
 
-    // Display names for datasets
+    /** 数据集英文名 → 中文显示名映射 */
     public static final Map<String, String> DATASET_NAMES = Map.ofEntries(
             Map.entry("County_P", "县级市"),
             Map.entry("Town_P", "乡镇"),
@@ -59,17 +67,22 @@ public class SpatialQueryService {
     }
 
     /**
-     * Query features across all datasets that intersect the given geometry.
+     * 执行空间查询
+     * 并发查询所有数据集，收集与指定几何相交的地物要素。
+     * 使用 CompletableFuture 并行加速，减少多数据集串行查询的等待时间。
+     *
+     * @param geometryObj 查询几何图形（GeoJSON Geometry 对象）
+     * @return 查询结果，包含总数、各数据集统计和要素列表
      */
     public R<Map<String, Object>> query(Object geometryObj) {
         long startTime = System.currentTimeMillis();
 
-        // Query all datasets concurrently
+        // 并发查询所有数据集
         List<CompletableFuture<Map<String, Object>>> futures = DATASETS.stream()
                 .map(dataset -> CompletableFuture.supplyAsync(() -> queryDataset(dataset, geometryObj), IO_EXECUTOR))
                 .collect(Collectors.toList());
 
-        // Collect results
+        // 收集结果
         Map<String, Object> result = new LinkedHashMap<>();
         List<Map<String, Object>> allFeatures = new ArrayList<>();
         Map<String, Integer> datasetCounts = new LinkedHashMap<>();
@@ -87,7 +100,7 @@ public class SpatialQueryService {
                     allFeatures.addAll(features);
                 }
             } catch (Exception e) {
-                log.warn("Query dataset {} failed: {}", DATASETS.get(i), e.getMessage());
+                log.warn("查询数据集 {} 失败: {}", DATASETS.get(i), e.getMessage());
             }
         }
 
@@ -97,19 +110,25 @@ public class SpatialQueryService {
         result.put("features", allFeatures);
         result.put("elapsed", elapsed);
 
-        log.info("Spatial query completed: {} features found in {}ms", totalCount, elapsed);
+        log.info("空间查询完成: 找到 {} 个要素, 耗时 {}ms", totalCount, elapsed);
         return R.ok(result);
     }
 
     /**
-     * Query a single dataset from iServer data service.
+     * 查询单个数据集中与指定几何相交的要素
+     * 调用 iServer Data 服务的 POST /datasets/{name}/features 接口，
+     * 使用 INTERSECT 空间查询模式。
+     *
+     * @param datasetName  数据集名称
+     * @param geometryObj  查询几何
+     * @return 标准化后的查询结果，包含 dataset 名和 features 列表
      */
     @SuppressWarnings("unchecked")
     private Map<String, Object> queryDataset(String datasetName, Object geometryObj) {
         String url = String.format("%s/iserver/services/%s/rest/data/datasources/%s/datasets/%s/features",
                 iserverBaseUrl, dataService, datasource, datasetName);
 
-        // Build request body for iServer spatial query
+        // 构建空间查询请求体
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("spatialQueryMode", SPATIAL_QUERY_MODE);
         requestBody.put("geometry", geometryObj);
@@ -139,7 +158,7 @@ public class SpatialQueryService {
                 return Map.of("dataset", datasetName, "features", List.of());
             }
 
-            // Normalize: add dataset info, extract key display field
+            // 标准化：补充数据集信息、提取显示名称和 SMID
             List<Map<String, Object>> normalized = new ArrayList<>();
             for (Map<String, Object> feature : features) {
                 Map<String, Object> normFeature = new LinkedHashMap<>();
@@ -151,11 +170,11 @@ public class SpatialQueryService {
                 normFeature.put("geometry", geometry);
                 normFeature.put("properties", properties != null ? properties : new HashMap<>());
 
-                // Extract best display name
+                // 提取最佳显示名称
                 String displayName = extractDisplayName(properties, datasetName);
                 normFeature.put("displayName", displayName);
 
-                // Extract SMID for identification
+                // 提取 SMID 用于要素标识
                 normFeature.put("smid", properties != null ? properties.get("SMID") : null);
 
                 normalized.add(normFeature);
@@ -163,19 +182,25 @@ public class SpatialQueryService {
 
             return Map.of("dataset", datasetName, "features", normalized);
         } catch (Exception e) {
-            log.warn("Failed to query {}: {}", datasetName, e.getMessage());
+            log.warn("查询数据集 {} 失败: {}", datasetName, e.getMessage());
             return Map.of("dataset", datasetName, "features", List.of());
         }
     }
 
     /**
-     * Extract the best display name from feature properties.
+     * 从要素属性中提取最佳显示名称
+     * 按优先级依次尝试：NAME > Name > name > 名称 > 地名 > 类型
+     * 对于 Landuse_R / Geomor_R 等数据集，"类型"字段通常更有意义
+     *
+     * @param properties  要素属性字典
+     * @param datasetName 数据集名称（用于兜底显示）
+     * @return 显示名称
      */
     private String extractDisplayName(Map<String, Object> properties, String datasetName) {
         if (properties == null)
             return "未命名要素";
 
-        // Try common name fields
+        // 尝试常见的名称字段
         for (String field : new String[] { "NAME", "Name", "name", "名称", "地名", "类型" }) {
             Object val = properties.get(field);
             if (val != null && !val.toString().isEmpty()) {
@@ -183,7 +208,7 @@ public class SpatialQueryService {
             }
         }
 
-        // For Landuse_R / Geomor_R, use 类型 field (Chinese)
+        // 对于 Landuse_R / Geomor_R，优先使用"类型"字段
         Object type = properties.get("类型");
         if (type != null && !type.toString().isEmpty()) {
             return type.toString();

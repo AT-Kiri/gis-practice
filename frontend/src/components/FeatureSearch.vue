@@ -131,16 +131,25 @@ import mapboxgl from 'mapbox-gl'
 const emit = defineEmits(['close'])
 const store = useMapStore()
 
-// ---- State ----
+// ==================== 组件状态 ====================
+
+/** 搜索关键字 */
 const keyword = ref('')
+/** 搜索层级筛选 */
 const searchLevel = ref('all')
+/** 是否正在搜索 */
 const loading = ref(false)
+/** 是否已执行过搜索 */
 const searched = ref(false)
+/** 当前页码 */
 const currentPage = ref(1)
 const pageSize = 10
+/** 悬停要素 ID */
 const hoveredId = ref(null)
+/** 详情抽屉中的要素 */
 const detailItem = ref(null)
 
+/** 搜索结果 */
 const results = reactive({
   total: 0,
   datasetCounts: {},
@@ -148,12 +157,14 @@ const results = reactive({
   elapsed: 0,
 })
 
+/** 当前页要素列表 */
 const paginatedItems = computed(() => {
   const start = (currentPage.value - 1) * pageSize
   return results.features.slice(start, start + pageSize)
 })
 
-// ---- Layer names ----
+// ==================== 图层常量 ====================
+
 const RESULT_POINT_SOURCE = 'ts-result-points'
 const RESULT_LINE_SOURCE = 'ts-result-lines'
 const RESULT_POLY_SOURCE = 'ts-result-polys'
@@ -161,12 +172,14 @@ const HIGHLIGHT_SOURCE = 'ts-highlight'
 
 function emptyFC() { return { type: 'FeatureCollection', features: [] } }
 
+/** 安全设置数据源内容 */
 function setSourceData(src, features) {
   const map = store.mapInstance
   if (!map) return
   try { map.getSource(src).setData({ type: 'FeatureCollection', features }) } catch(e) {}
 }
 
+/** 确保搜索相关图层已创建 */
 function ensureSources() {
   const map = store.mapInstance
   if (!map) return
@@ -202,7 +215,12 @@ function ensureSources() {
   })
 }
 
-// ---- Search ----
+// ==================== 搜索 ====================
+
+/**
+ * 执行关键字搜索
+ * 向后端发送关键字和层级参数，查询匹配的地物要素
+ */
 async function doSearch() {
   const kw = keyword.value.trim()
   if (!kw) return
@@ -234,18 +252,20 @@ async function doSearch() {
       results.total = 0
     }
   } catch (err) {
-    console.error('Search error:', err)
+    console.error('搜索错误:', err)
     results.total = 0
   } finally {
     loading.value = false
   }
 }
 
-// ---- Named cursor handlers (for proper cleanup) ----
+// 命名光标处理器（用于事件绑定/解绑，避免内存泄漏）
 function tsCursorPointer() { const m = store.mapInstance; if (m) m.getCanvas().style.cursor = 'pointer' }
 function tsCursorDefault() { const m = store.mapInstance; if (m) m.getCanvas().style.cursor = '' }
 
-// ---- Display ----
+// ==================== 结果显示 ====================
+
+/** 在地图上展示搜索结果 */
 function displayResults(features) {
   const map = store.mapInstance
   if (!map) return
@@ -265,7 +285,7 @@ function displayResults(features) {
   setSourceData(RESULT_LINE_SOURCE, lines)
   setSourceData(RESULT_POLY_SOURCE, polys)
 
-  // Click + cursor handlers — 使用命名函数确保可移除
+  // 注册点击和悬停事件
   ;['ts-result-point', 'ts-result-line', 'ts-result-fill', 'ts-result-outline'].forEach(id => {
     map.off('click', id, onMapResultClick)
     map.on('click', id, onMapResultClick)
@@ -274,6 +294,7 @@ function displayResults(features) {
   })
 }
 
+/** 清除结果显示 */
 function clearResultDisplay() {
   const map = store.mapInstance
   if (!map) return
@@ -288,7 +309,9 @@ function clearResultDisplay() {
   })
 }
 
-// ---- Interactions ----
+// ==================== 交互处理 ====================
+
+/** 点地图上的结果要素时显示详情弹窗 */
 function onMapResultClick(e) {
   if (!e.features || !e.features.length) return
   const p = e.features[0].properties
@@ -296,6 +319,8 @@ function onMapResultClick(e) {
 }
 
 let popup = null
+
+/** 显示弹窗 */
 function showPopup(coords, props) {
   const map = store.mapInstance
   if (!map) return
@@ -321,6 +346,7 @@ function showPopup(coords, props) {
     .addTo(map)
 }
 
+/** 悬停高亮要素 */
 function highlightItem(item) {
   const map = store.mapInstance
   if (!map) return
@@ -330,11 +356,13 @@ function highlightItem(item) {
   setSourceData(HIGHLIGHT_SOURCE, [{ type: 'Feature', geometry: geo }])
 }
 
+/** 取消悬停高亮 */
 function unhighlightItem() {
   hoveredId.value = null
   setSourceData(HIGHLIGHT_SOURCE, [])
 }
 
+/** 点击列表中要素：聚焦地图并显示详情抽屉 */
 function focusItem(item) {
   const map = store.mapInstance
   if (!map) return
@@ -358,6 +386,7 @@ function focusItem(item) {
   })
 }
 
+/** 清除所有搜索结果 */
 function clearResults() {
   keyword.value = ''
   searched.value = false
@@ -371,6 +400,7 @@ function clearResults() {
   if (popup) { popup.remove(); popup = null }
 }
 
+/** 根据几何类型返回标签颜色 */
 function typeColor(g) {
   if (!g) return 'default'
   const t = g.type || ''
@@ -380,6 +410,7 @@ function typeColor(g) {
   return 'default'
 }
 
+/** 根据几何类型返回中文标签 */
 function typeLabel(g) {
   if (!g) return '?'
   const t = g.type || ''

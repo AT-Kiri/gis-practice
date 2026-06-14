@@ -1,10 +1,12 @@
 <template>
   <div class="home-view">
+    <!-- 主地图视图 -->
     <SmMapViewer />
   </div>
 </template>
 
 <script setup>
+// 引入地图主组件
 import SmMapViewer from '../components/SmMapViewer.vue'
 </script>
 

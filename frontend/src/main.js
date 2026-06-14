@@ -1,3 +1,7 @@
+/**
+ * 应用入口文件
+ * 初始化 Vue 应用，注册 Pinia 状态管理、Router 路由和 Ant Design Vue 组件库
+ */
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import Antd from 'ant-design-vue'
@@ -8,7 +12,7 @@ import router from './router'
 import './assets/style.css'
 
 const app = createApp(App)
-app.use(createPinia())
-app.use(router)
-app.use(Antd)
+app.use(createPinia())   // 注册状态管理
+app.use(router)          // 注册路由
+app.use(Antd)            // 注册 UI 组件库
 app.mount('#app')

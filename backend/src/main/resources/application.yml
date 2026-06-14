@@ -1,3 +1,4 @@
+# 服务器端口
 server:
   port: 8080
 
@@ -5,11 +6,12 @@ spring:
   application:
     name: emergency-backend
 
+# iServer 服务配置 —— 所有地理数据服务和空间分析服务均通过 iServer 统一管理
 iserver:
-  base-url: http://localhost:8090
-  data-service: data-jingjin
-  datasource: Jingjin
-  map-service: map-jingjin
-  map-name: 京津地区地图
-  spatial-service: spatialanalyst-sample
-  transport-service: transportationanalyst-sample
+  base-url: http://localhost:8090            # iServer 基础地址
+  data-service: data-jingjin                 # 数据服务名称（京津地区数据）
+  datasource: Jingjin                        # 数据源名称
+  map-service: map-jingjin                   # 地图服务名称
+  map-name: 京津地区地图                      # 地图名称（用于 queryResults 接口）
+  spatial-service: spatialanalyst-sample     # 空间分析服务名称
+  transport-service: transportationanalyst-sample  # 交通网络分析服务名称
