@@ -116,6 +116,56 @@ export function convertGeometry(geometry) {
 }
 
 /**
+ * 将 iServer Server JSON geometry 转为 GeoJSON geometry（不做坐标变换，坐标保持原值）
+ * 适用于 WGS84 坐标数据（如 Jingjin 数据源）
+ * @param {object} g - Server JSON Geometry，如 {type:"POINT", points:[{x,y}], parts:[n]}
+ * @returns {object|null} GeoJSON Geometry 对象
+ */
+export function serverGeoToGeoJSON(g) {
+  if (!g || !g.points) return null
+  if (g.type === 'POINT' || g.type === 'NODE') {
+    return { type: 'Point', coordinates: [g.points[0].x, g.points[0].y] }
+  }
+  if (g.type === 'LINE') {
+    return { type: 'LineString', coordinates: g.points.map(p => [p.x, p.y]) }
+  }
+  if (g.type === 'REGION' || g.type === 'POLYGON') {
+    if (g.parts && g.parts.length > 1) {
+      const rings = []
+      let idx = 0
+      for (const count of g.parts) {
+        rings.push(g.points.slice(idx, idx + count).map(p => [p.x, p.y]))
+        idx += count
+      }
+      return { type: 'Polygon', coordinates: rings }
+    }
+    return { type: 'Polygon', coordinates: [g.points.map(p => [p.x, p.y])] }
+  }
+  return null
+}
+
+/**
+ * 将 GeoJSON Geometry 转为 iServer Server JSON 格式
+ * 支持 Point / LineString / Polygon 三种类型
+ * @param {object} g - GeoJSON Geometry
+ * @returns {object} Server JSON Geometry
+ */
+export function geoJSONToServerGeo(g) {
+  if (!g || !g.type) return null
+  if (g.type === 'Point') {
+    return { type: 'POINT', points: [{ x: g.coordinates[0], y: g.coordinates[1] }] }
+  }
+  if (g.type === 'LineString') {
+    return { type: 'LINE', points: g.coordinates.map(([x, y]) => ({ x, y })) }
+  }
+  if (g.type === 'Polygon') {
+    const ring = g.coordinates[0]
+    return { type: 'REGION', points: ring.map(([x, y]) => ({ x, y })), parts: [ring.length] }
+  }
+  return g
+}
+
+/**
  * 按 parts 数组将 points 列表拆分为多个环（用于 REGION 几何类型）
  * @param {object[]} points - 所有点的数组
  * @param {number[]} parts - 每个环包含的点数

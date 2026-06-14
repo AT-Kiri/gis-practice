@@ -1,33 +1,57 @@
 <template>
   <!-- 应用根布局：顶部导航栏 + 地图内容区 -->
   <a-layout class="app-root">
-    <!-- 顶栏：系统标题与运行状态 -->
+    <!-- 顶栏：系统标题与导航 -->
     <a-layout-header class="app-header">
       <div class="header-left">
         <div class="header-logo">
-        <SafetyCertificateOutlined style="color: #1890ff; font-size: 24px;" />
-      </div>
+          <router-link to="/" style="display: flex; align-items: center;">
+            <SafetyCertificateOutlined style="color: #1890ff; font-size: 24px;" />
+          </router-link>
+        </div>
         <div class="header-text">
           <h1 class="header-title">京津冀城市综合防灾应急管理</h1>
           <span class="header-sub">Beijing-Tianjin-Hebei Emergency Management GIS</span>
         </div>
       </div>
       <div class="header-right">
-        <div class="header-status">
-          <span class="status-dot" />
-          <span class="status-text">系统运行中</span>
-        </div>
+        <!-- 导航按钮 -->
+        <a-space>
+          <a-button
+            type="text"
+            class="nav-btn"
+            :class="{ 'nav-btn--active': $route.name === 'home' }"
+            @click="$router.push('/')"
+          >
+            <AppstoreOutlined />
+            <span>二维地图</span>
+          </a-button>
+          <a-button
+            type="text"
+            class="nav-btn"
+            :class="{ 'nav-btn--active': $route.name === 'flood-simulation' }"
+            @click="$router.push('/flood-simulation')"
+          >
+            <ThunderboltOutlined />
+            <span>三维洪水模拟</span>
+          </a-button>
+          <a-divider type="vertical" style="border-color: rgba(255,255,255,0.15); height: 20px;" />
+          <div class="header-status">
+            <span class="status-dot" />
+            <span class="status-text">系统运行中</span>
+          </div>
+        </a-space>
       </div>
     </a-layout-header>
     <a-layout-content class="app-content">
-      <!-- 路由视图：地图页面 -->
+      <!-- 路由视图 -->
       <router-view />
     </a-layout-content>
   </a-layout>
 </template>
 
 <script setup>
-import { SafetyCertificateOutlined } from '@ant-design/icons-vue'
+import { SafetyCertificateOutlined, AppstoreOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
 </script>
 
 <style scoped>
@@ -90,6 +114,28 @@ import { SafetyCertificateOutlined } from '@ant-design/icons-vue'
   align-items: center;
 }
 
+/* 导航按钮 */
+.nav-btn {
+  color: rgba(255, 255, 255, 0.6) !important;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.nav-btn:hover {
+  color: rgba(255, 255, 255, 0.9) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.nav-btn--active {
+  color: #1890ff !important;
+  background: rgba(24, 144, 255, 0.12) !important;
+}
+
 /* 系统运行状态指示灯 */
 .header-status {
   display: flex;
@@ -109,7 +155,6 @@ import { SafetyCertificateOutlined } from '@ant-design/icons-vue'
   animation: pulse-dot 2s ease infinite;
 }
 
-/* 状态点呼吸动画 */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }

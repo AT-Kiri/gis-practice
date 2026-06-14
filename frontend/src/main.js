@@ -12,7 +12,7 @@ import router from './router'
 import './assets/style.css'
 
 const app = createApp(App)
-app.use(createPinia())   // 注册状态管理
-app.use(router)          // 注册路由
-app.use(Antd)            // 注册 UI 组件库
+app.use(createPinia())
+app.use(router)
+app.use(Antd)
 app.mount('#app')

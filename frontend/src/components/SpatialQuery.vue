@@ -121,9 +121,31 @@ import {
   BorderOutlined, MinusCircleOutlined,
 } from '@ant-design/icons-vue'
 import { useMapStore } from '../stores/map'
-import { request } from '../utils/request'
-import { toGeoJSON } from '../utils/map'
+import { serverGeoToGeoJSON, ISERVER_URL } from '../utils/map'
 import mapboxgl from 'mapbox-gl'
+
+// ==================== iServer 配置 ====================
+const DATA_SERVICE = 'data-jingjin'
+const DATASOURCE = 'Jingjin'
+
+/** 需要查询的 9 个数据集 */
+const DATASETS = [
+  'County_P', 'Town_P', 'Road_L', 'Railway_L',
+  'River_L', 'Lake_R', 'Landuse_R', 'Geomor_R', 'Coastline_L',
+]
+
+/** 数据集英文名 → 中文显示名 */
+const DATASET_NAMES = {
+  County_P: '县级市',
+  Town_P: '乡镇',
+  Road_L: '道路',
+  Railway_L: '铁路',
+  River_L: '河流',
+  Lake_R: '湖泊',
+  Landuse_R: '土地利用',
+  Geomor_R: '地貌',
+  Coastline_L: '海岸线',
+}
 
 const store = useMapStore()
 
@@ -434,8 +456,38 @@ function typeLabel(geometry) {
 // ==================== 空间查询 ====================
 
 /**
- * 执行空间查询：向后端发送几何图形，查询所有相交要素
- * @param {object} geometry - GeoJSON 几何对象
+ * 将 GeoJSON Polygon 转为 iServer Server JSON REGION 格式
+ * {type:"Polygon", coordinates:[[[lng,lat],...]]}
+ * → {type:"REGION", points:[{x:lng,y:lat},...], parts:[n]}
+ */
+function geoToServerJson(geometry) {
+  if (geometry.type === 'Polygon') {
+    const outerRing = geometry.coordinates[0]
+    const points = outerRing.map(([lng, lat]) => ({ x: lng, y: lat }))
+    return { type: 'REGION', points, parts: [outerRing.length] }
+  }
+  // 圆形的 buffer 也是 Polygon，同上处理
+  if (geometry.type === 'Point') {
+    return { type: 'POINT', points: [{ x: geometry.coordinates[0], y: geometry.coordinates[1] }], parts: [1] }
+  }
+  return geometry
+}
+
+/**
+ * 从 iServer 要素属性中提取最佳显示名称
+ */
+function extractName(properties) {
+  if (!properties) return '未命名要素'
+  for (const field of ['NAME', 'Name', 'name', '名称', '地名', '类型', 'ADMINNAME', 'KIND', 'KD', 'LANDTYPE', 'GEO_TYPE']) {
+    const val = properties[field]
+    if (val != null && String(val).trim() !== '') return String(val)
+  }
+  return '未命名要素 (SMID: ' + (properties.SMID || '?') + ')'
+}
+
+/**
+ * 执行空间查询：直接调 iServer featureResults REST API
+ * @param {object} geometry - GeoJSON 几何对象（WGS84 坐标）
  */
 async function doQuery(geometry) {
   const map = store.mapInstance
@@ -451,22 +503,84 @@ async function doQuery(geometry) {
   results.elapsed = 0
   clearResultDisplay()
 
-  try {
-    const res = await request.post('/spatial/query', { geometry })
-    if (res.code === 200 && res.data) {
-      results.total = res.data.total || 0
-      results.datasetCounts = res.data.datasetCounts || {}
-      results.features = res.data.features || []
-      results.elapsed = res.data.elapsed || 0
+  const startTime = Date.now()
 
-      if (results.features.length > 0) {
-        displayResults(results.features)
+  try {
+    // 构建请求体
+    const serverGeo = geoToServerJson(geometry)
+    const datasetNames = DATASETS.map(d => DATASOURCE + ':' + d)
+    const requestBody = {
+      getFeatureMode: 'SPATIAL',
+      datasetNames,
+      geometry: serverGeo,
+      spatialQueryMode: 'INTERSECT',
+    }
+
+    // 直接 POST iServer featureResults 接口（CORS 已启用）
+    const url = `${ISERVER_URL}/iserver/services/${DATA_SERVICE}/rest/data/featureResults.json?returnContent=true`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    })
+
+    if (!res.ok) {
+      const errText = await res.text()
+      throw new Error('iServer 请求失败 (' + res.status + '): ' + errText.slice(0, 200))
+    }
+
+    const data = await res.json()
+    const elapsed = Date.now() - startTime
+
+    // 解析 datasetInfos → 每个 feature 所属数据集
+    const datasetRanges = (data.datasetInfos || []).map(info => ({
+      dataset: info.datasetName.replace(DATASOURCE + ':', ''),
+      start: info.featureRange.start,
+      end: info.featureRange.end,
+    }))
+
+    // 解析 features
+    const allFeatures = (data.features || []).map((f, idx) => {
+      // 确定所属数据集
+      const range = datasetRanges.find(r => idx >= r.start && idx <= r.end)
+      const datasetName = range ? range.dataset : '未知'
+
+      // 合并 fieldNames + fieldValues → properties
+      const properties = {}
+      if (f.fieldNames && f.fieldValues) {
+        f.fieldNames.forEach((name, i) => {
+          properties[name] = f.fieldValues[i]
+        })
       }
+
+      return {
+        dataset: datasetName,
+        datasetName: DATASET_NAMES[datasetName] || datasetName,
+        geometry: f.geometry,
+        properties,
+        displayName: extractName(properties),
+        smid: properties.SMID ?? f.ID,
+      }
+    })
+
+    // 统计各数据集数量
+    const datasetCounts = {}
+    allFeatures.forEach(f => {
+      datasetCounts[f.datasetName] = (datasetCounts[f.datasetName] || 0) + 1
+    })
+
+    results.total = allFeatures.length
+    results.datasetCounts = datasetCounts
+    results.features = allFeatures
+    results.elapsed = elapsed
+
+    if (allFeatures.length > 0) {
+      displayResults(allFeatures)
     } else {
-      errorMsg.value = res.message || '查询失败'
+      // 空结果时不清除已有结果，只显示空提示
     }
   } catch (err) {
-    errorMsg.value = '查询请求失败: ' + (err.message || '网络错误')
+    errorMsg.value = '查询失败: ' + (err.message || '网络错误')
   } finally {
     loading.value = false
   }
@@ -488,7 +602,7 @@ function displayResults(features) {
   const polyFeatures = []
 
   features.forEach(f => {
-    const geo = toGeoJSON(f.geometry)
+    const geo = serverGeoToGeoJSON(f.geometry)
     if (!geo) return
     const feature = {
       type: 'Feature',
@@ -614,7 +728,7 @@ function showPopup(coords, props) {
 function highlightFeature(item) {
   const map = store.mapInstance
   if (!map) return
-  const geo = toGeoJSON(item.geometry)
+  const geo = serverGeoToGeoJSON(item.geometry)
   if (!geo) return
   hoveredId.value = item.smid + '-' + item.dataset
   setSourceData(HIGHLIGHT_SOURCE, [{ type: 'Feature', geometry: geo }])
@@ -630,7 +744,8 @@ function unhighlightFeature() {
 function focusFeature(item) {
   const map = store.mapInstance
   if (!map) return
-  const geo = toGeoJSON(item.geometry)
+
+  const geo = serverGeoToGeoJSON(item.geometry)
   if (!geo) return
 
   let center

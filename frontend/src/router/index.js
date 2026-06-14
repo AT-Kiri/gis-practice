@@ -5,12 +5,17 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 
-/** 路由表：目前只有首页（地图主界面） */
+/** 路由表 */
 const routes = [
   {
     path: '/',
     name: 'home',
     component: HomeView,
+  },
+  {
+    path: '/flood-simulation',
+    name: 'flood-simulation',
+    component: () => import('../views/FloodSimulationView.vue'),
   },
 ]
 

@@ -73,6 +73,16 @@
               <span v-if="item.properties.SMID"> · SMID: {{ item.properties.SMID }}</span>
             </div>
           </div>
+          <a-button
+            size="small"
+            type="primary"
+            ghost
+            class="locate-btn"
+            title="定位到地图"
+            @click.stop="flyToItem(item)"
+          >
+            <template #icon><send-outlined /></template>
+          </a-button>
         </div>
       </div>
 
@@ -122,11 +132,28 @@
 
 <script setup>
 import { ref, reactive, computed, onUnmounted } from 'vue'
-import { CloseOutlined } from '@ant-design/icons-vue'
+import { CloseOutlined, SendOutlined } from '@ant-design/icons-vue'
 import { useMapStore } from '../stores/map'
-import { request } from '../utils/request'
-import { toGeoJSON } from '../utils/map'
+import { serverGeoToGeoJSON, ISERVER_URL } from '../utils/map'
 import mapboxgl from 'mapbox-gl'
+
+// ==================== iServer 配置 ====================
+const DATASOURCE = 'Jingjin'
+
+/** 数据集英文名 → 中文显示名 */
+const LAYER_NAMES = {
+  County_P: '县级市', Town_P: '乡镇', Road_L: '道路', Railway_L: '铁路',
+  River_L: '河流', Lake_R: '湖泊', Landuse_R: '土地利用', Geomor_R: '地貌',
+  Coastline_L: '海岸线', Province_L: '省界',
+}
+
+/** 搜索层级 → 数据集列表 */
+const LEVEL_LAYERS = {
+  province: ['Province_L', 'County_P'],
+  county: ['County_P'],
+  town: ['Town_P'],
+  all: ['County_P', 'Town_P', 'Road_L', 'Railway_L', 'River_L', 'Lake_R', 'Landuse_R', 'Geomor_R', 'Coastline_L'],
+}
 
 const emit = defineEmits(['close'])
 const store = useMapStore()
@@ -218,8 +245,7 @@ function ensureSources() {
 // ==================== 搜索 ====================
 
 /**
- * 执行关键字搜索
- * 向后端发送关键字和层级参数，查询匹配的地物要素
+ * 执行关键字搜索：直接调 iServer 地图服务 SQLQuery
  */
 async function doSearch() {
   const kw = keyword.value.trim()
@@ -235,22 +261,82 @@ async function doSearch() {
   clearResultDisplay()
   detailItem.value = null
 
-  try {
-    const res = await request.get('/thematic/search', {
-      params: { keyword: kw, level: searchLevel.value },
-    })
-    if (res.code === 200 && res.data) {
-      results.total = res.data.total || 0
-      results.datasetCounts = res.data.datasetCounts || {}
-      results.features = res.data.features || []
-      results.elapsed = res.data.elapsed || 0
+  const startTime = Date.now()
 
-      if (results.features.length > 0) {
-        displayResults(results.features)
-      }
-    } else {
-      results.total = 0
+  try {
+    // SQL 转义：防止注入并支持 LIKE 模糊匹配
+    const escaped = kw
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "''")
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+
+    // 每个数据集使用对应的名称字段，分批并行查询
+    const layers = LEVEL_LAYERS[searchLevel.value] || LEVEL_LAYERS.all
+    const nameFieldMap = {
+      County_P: 'ADMINNAME',
+      Town_P: 'NAME', Road_L: 'NAME', Railway_L: 'NAME', River_L: 'NAME',
+      Lake_R: null, Landuse_R: 'LANDTYPE', Geomor_R: 'GEO_TYPE', Coastline_L: null,
+      Province_L: 'NAME',
     }
+
+    const url = `${ISERVER_URL}/iserver/services/data-jingjin/rest/data/featureResults.json?returnContent=true`
+
+    // 并行查询所有数据集
+    const queries = layers.map(async (layer) => {
+      const field = nameFieldMap[layer]
+      if (!field) return [] // 跳过无可搜索字段的数据集
+      const filter = `${field} like '%${escaped}%'`
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            getFeatureMode: 'SQL',
+            datasetNames: [DATASOURCE + ':' + layer],
+            queryParameter: { attributeFilter: filter },
+          }),
+        })
+        if (!res.ok) return []
+        const data = await res.json()
+        return (data.features || []).map(f => {
+          const properties = {}
+          if (f.fieldNames && f.fieldValues) {
+            f.fieldNames.forEach((name, i) => { properties[name] = f.fieldValues[i] })
+          }
+          let displayName = '未命名要素'
+          for (const fn of ['NAME', 'Name', 'name', 'ADMINNAME', 'KIND', 'KD', '名称', '类型', 'LANDTYPE', 'GEO_TYPE']) {
+            const v = properties[fn]
+            if (v != null && String(v).trim() !== '') { displayName = String(v); break }
+          }
+          return {
+            dataset: layer,
+            datasetName: LAYER_NAMES[layer] || layer,
+            geometry: f.geometry,
+            properties,
+            displayName,
+            smid: properties.SMID ?? f.ID,
+          }
+        })
+      } catch { return [] }
+    })
+
+    const resultsByLayer = await Promise.all(queries)
+    const allFeatures = resultsByLayer.flat()
+    const elapsed = Date.now() - startTime
+
+    // 统计各数据集数量
+    const datasetCounts = {}
+    allFeatures.forEach(f => {
+      datasetCounts[f.datasetName] = (datasetCounts[f.datasetName] || 0) + 1
+    })
+
+    results.total = allFeatures.length
+    results.datasetCounts = datasetCounts
+    results.features = allFeatures
+    results.elapsed = elapsed
+
+    if (allFeatures.length > 0) displayResults(allFeatures)
   } catch (err) {
     console.error('搜索错误:', err)
     results.total = 0
@@ -273,7 +359,7 @@ function displayResults(features) {
 
   const pts = [], lines = [], polys = []
   features.forEach(f => {
-    const geo = toGeoJSON(f.geometry)
+    const geo = serverGeoToGeoJSON(f.geometry)
     if (!geo) return
     const feat = { type: 'Feature', geometry: geo, properties: { ...f.properties, _displayName: f.displayName, _dataset: f.datasetName } }
     if (geo.type === 'Point' || geo.type === 'MultiPoint') pts.push(feat)
@@ -350,7 +436,7 @@ function showPopup(coords, props) {
 function highlightItem(item) {
   const map = store.mapInstance
   if (!map) return
-  const geo = toGeoJSON(item.geometry)
+  const geo = serverGeoToGeoJSON(item.geometry)
   if (!geo) return
   hoveredId.value = item.smid + '-' + item.dataset
   setSourceData(HIGHLIGHT_SOURCE, [{ type: 'Feature', geometry: geo }])
@@ -367,16 +453,29 @@ function focusItem(item) {
   const map = store.mapInstance
   if (!map) return
   detailItem.value = item
+  doFlyTo(item)
+}
 
-  const geo = toGeoJSON(item.geometry)
-  if (!geo) return
-  let center
-  if (geo.type === 'Point') {
-    center = geo.coordinates
-  } else {
-    const allCoords = geo.coordinates.flat(2)
-    if (allCoords.length >= 2) center = [allCoords[0], allCoords[1]]
+/** 定位按钮：只飞入地图，不打开详情抽屉 */
+function flyToItem(item) {
+  doFlyTo(item)
+}
+
+/** 从 Server JSON geometry 提取中心点 [lng, lat] */
+function getCenter(g) {
+  if (!g || !g.points || !g.points.length) return null
+  if (g.type === 'POINT' || g.type === 'NODE') {
+    return [g.points[0].x, g.points[0].y]
   }
+  // LINE / REGION：取第一个点作为近似中心
+  return [g.points[0].x, g.points[0].y]
+}
+
+/** 提取中心点并飞入 */
+function doFlyTo(item) {
+  const map = store.mapInstance
+  if (!map) return
+  const center = getCenter(item.geometry)
   if (center) map.flyTo({ center, zoom: Math.max(map.getZoom(), 11), duration: 400 })
 
   showPopup(center || [0, 0], {
@@ -506,6 +605,8 @@ onUnmounted(() => {
 .item-body { flex: 1; min-width: 0; }
 .item-name { font-size: 13px; font-weight: 500; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-meta { font-size: 11px; color: #999; margin-top: 2px; }
+.result-item .locate-btn { flex-shrink: 0; margin-left: 8px; align-self: center; opacity: 0; transition: opacity 0.15s; }
+.result-item:hover .locate-btn { opacity: 1; }
 
 .panel-pagination {
   padding: 8px 14px;

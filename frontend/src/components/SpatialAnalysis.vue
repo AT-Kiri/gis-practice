@@ -131,7 +131,7 @@ import {
   DeleteOutlined, ApiOutlined,
 } from '@ant-design/icons-vue'
 import { useMapStore } from '../stores/map'
-import { request } from '../utils/request'
+import { ISERVER_URL, geoJSONToServerGeo, serverGeoToGeoJSON } from '../utils/map'
 import mapboxgl from 'mapbox-gl'
 
 const emit = defineEmits(['close'])
@@ -246,7 +246,7 @@ function onDrawClick(e) {
 
   if (drawMode.value === 'point') {
     const geo = { type: 'Point', coordinates: pt }
-    drawnGeo.value = JSON.stringify({ type: 'Feature', geometry: geo })
+    drawnGeo.value = geo
     setSource(DRAW_SOURCE, [{ type: 'Feature', geometry: geo }])
     return
   }
@@ -311,18 +311,35 @@ function clearDraw() {
 
 // ==================== 缓冲区分析 ====================
 
-/** 执行缓冲区分析 */
+/** 执行缓冲区分析：直接调用 iServer 空间分析服务 */
 async function execBuffer() {
   if (!drawnGeo.value) return
   loading.value = true
   try {
-    const res = await request.post('/spatial-analysis/buffer', {
-      geometry: drawnGeo.value,
-      distance: bufferDistance.value,
-      unit: 'METER',
+    // 将用户绘制的 GeoJSON 几何转为 iServer Server JSON 格式
+    const serverGeo = geoJSONToServerGeo(drawnGeo.value)
+    if (!serverGeo) throw new Error('不支持的几何类型')
+
+    const url = `${ISERVER_URL}/iserver/services/spatialanalyst-sample/restjsr/spatialanalyst/geometry/buffer.json?returnContent=true`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceGeometry: serverGeo,
+        analystParameter: {
+          endType: 'ROUND',
+          leftDistance: { value: bufferDistance.value },
+          rightDistance: { value: bufferDistance.value },
+          semicircleLineSegment: 10,
+        },
+      }),
     })
-    if (res.code === 200 && res.data) {
-      showResult(res.data)
+    if (!res.ok) throw new Error('缓冲区分析失败 (' + res.status + ')')
+    const data = await res.json()
+    if (data.succeed !== false && data.resultGeometry) {
+      // 将 Server JSON 格式的结果几何转为 GeoJSON
+      const resultGeo = serverGeoToGeoJSON(data.resultGeometry)
+      showResult({ resultGeometry: resultGeo })
       hasResult.value = true
     }
   } catch (err) {
@@ -334,19 +351,64 @@ async function execBuffer() {
 
 // ==================== 叠置分析 ====================
 
-/** 执行叠置分析 */
+/** 叠置分析的数据服务名称 */
+const DATA_SERVICE = 'data-jingjin'
+
+/** 执行叠置分析：直接调用 iServer 空间分析服务 */
 async function execOverlay() {
   loading.value = true
   try {
-    const res = await request.post('/spatial-analysis/overlay', {
-      sourceDataset: overlaySource.value,
-      operateDataset: overlayOperate.value,
-      operation: overlayOperation.value,
+    // Step 1: 调用叠置分析，创建结果数据集
+    const overlayUrl = `${ISERVER_URL}/iserver/services/spatialanalyst-sample/restjsr/spatialanalyst/datasets/${overlaySource.value}/overlay.json?returnContent=true`
+    let res = await fetch(overlayUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        operateDataset: overlayOperate.value,
+        operation: overlayOperation.value,
+        tolerance: 0,
+      }),
     })
-    if (res.code === 200 && res.data) {
-      showResult(res.data)
-      hasResult.value = true
-    }
+    if (!res.ok) throw new Error('叠置分析失败 (' + res.status + ')')
+    const overlayData = await res.json()
+    if (overlayData.succeed === false) throw new Error(overlayData.error?.errorMsg || '叠置分析失败')
+
+    // Step 2: 从结果数据集查询要素
+    const resultDataset = overlayData.dataset  // 如 "RS_xxx@Jingjin"
+    const dataSourceName = resultDataset.split('@')[1]  // "Jingjin"
+    const tableName = resultDataset.split('@')[0]       // "RS_xxx"
+    const featureUrl = `${ISERVER_URL}/iserver/services/${DATA_SERVICE}/rest/data/featureResults.json?returnContent=true`
+    res = await fetch(featureUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        getFeatureMode: 'SQL',
+        datasetNames: [`${dataSourceName}:${tableName}`],
+        attributeFilter: 'SMID > 0',
+        returnContent: true,
+        fromIndex: 0,
+        toIndex: 10000,
+      }),
+    })
+    if (!res.ok) throw new Error('查询叠置结果失败 (' + res.status + ')')
+    const featureData = await res.json()
+
+    // Step 3: 将 features 转为标准 GeoJSON FeatureCollection
+    const features = (featureData.features || []).map(f => {
+      const props = {}
+      if (f.fieldNames && f.fieldValues) {
+        f.fieldNames.forEach((name, i) => { props[name] = f.fieldValues[i] })
+      }
+      return {
+        type: 'Feature',
+        geometry: serverGeoToGeoJSON(f.geometry),
+        properties: props,
+      }
+    }).filter(f => f.geometry)
+    const featureCollection = { type: 'FeatureCollection', features }
+
+    showResult({ features: featureCollection })
+    hasResult.value = true
   } catch (err) {
     console.error('叠置分析失败:', err)
   } finally {
