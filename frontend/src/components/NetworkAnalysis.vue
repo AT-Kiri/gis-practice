@@ -94,8 +94,12 @@ import {
   DeleteOutlined, CheckCircleFilled,
 } from '@ant-design/icons-vue'
 import { useMapStore } from '../stores/map'
-import { request } from '../utils/request'
-import { convertGeometry, changchunToWgs84 } from '../utils/map'
+import { convertGeometry, changchunToWgs84, wgs84ToChangchun } from '../utils/map'
+import { QueryService, NetworkAnalystService } from '@supermap/iclient-mapboxgl'
+import { DataFormat } from '@supermap/iclient-common/REST'
+
+import { FindServiceAreasParameters } from '@supermap/iclient-common/iServer/FindServiceAreasParameters'
+import { QueryBySQLParameters } from '@supermap/iclient-common/iServer/QueryBySQLParameters'
 import mapboxgl from 'mapbox-gl'
 
 const emit = defineEmits(['close'])
@@ -110,13 +114,12 @@ const MAP_NAME = encodeURIComponent('长春市区图')
 
 const tabKey = ref('path')          // 当前标签页：path | service-area
 const loading = ref(false)          // 是否正在分析
+const roadLoading = ref(false)      // 路网是否加载中
 const resultInfo = ref(null)        // 结果摘要文字
 
 const points = ref([])              // 最短路径途经点 [{ x, y }]
 const centerPoint = ref(null)       // 服务区中心点 { x, y }
 const serviceRadius = ref(500)      // 服务区半径（米）
-const pathResult = ref(null)        // 路径分析结果 GeoJSON
-const areaResult = ref(null)        // 服务区分析结果 GeoJSON
 
 // 地图图层 Source 名称
 const NA_DRAW_SRC = 'na-draw'
@@ -125,8 +128,10 @@ const NA_AREA_SRC = 'na-area'
 const NA_BG_IMAGE = 'na-bg-image'     // 长春 tileImage 底图
 const NA_ROAD_SRC = 'na-road'          // 矢量路网
 
-// 保存切换前的地图状态（中心点、缩放级别、样式）
+// 保存切换前的地图状态（中心点、缩放级别）
 let savedState = null
+// 标记是否已切换到长春视图，防止重复加载
+let changchunLoaded = false
 
 // ==================== 生命周期 ====================
 
@@ -153,7 +158,6 @@ function switchToChangchun() {
   savedState = {
     center: map.getCenter(),
     zoom: map.getZoom(),
-    style: map.getStyle(),
   }
 
   // 隐藏世界底图和京津冀图层
@@ -164,17 +168,27 @@ function switchToChangchun() {
   // 飞往长春市区（WGS84 坐标: ~125.3°E, 43.8°N）
   map.flyTo({ center: [125.3, 43.8], zoom: 10 })
 
-  // 飞行结束后加载长春底图和路网
-  map.once('moveend', () => {
+  // 若地图已经在目标位置（flyTo 无动画），直接加载
+  if (changchunLoaded) {
     loadChangchunTile()
     loadRoadNetwork()
+    return
+  }
+
+  // 飞行结束后加载长春底图和路网
+  map.once('moveend', () => {
+    if (!changchunLoaded) {
+      changchunLoaded = true
+      loadChangchunTile()
+      loadRoadNetwork()
+    }
   })
 }
 
 /** 恢复地图到进入网络分析前的状态 */
 function restoreMap() {
   const map = store.mapInstance
-  if (!map || !savedState) return
+  if (!map) return
 
   // 移除长春 tileImage 图层
   try {
@@ -193,6 +207,7 @@ function restoreMap() {
     map.flyTo({ center: savedState.center, zoom: savedState.zoom })
   }
   savedState = null
+  changchunLoaded = false
 }
 
 /**
@@ -221,7 +236,6 @@ function loadChangchunTile() {
     map.getSource(NA_BG_IMAGE).updateImage({ url, coordinates: coords })
   } else {
     map.addSource(NA_BG_IMAGE, { type: 'image', url, coordinates: coords })
-    // 第二参数确保底图在矢量路网之下
     map.addLayer({ id: NA_BG_IMAGE, type: 'raster', source: NA_BG_IMAGE }, 'na-road-line')
     store.addLayer({ id: NA_BG_IMAGE, name: '长春市区底图', visible: true, opacity: 1 })
   }
@@ -264,18 +278,74 @@ function initLayers() {
   }
 }
 
-/** 从后端加载 RoadNet 矢量路网数据 */
+/**
+ * 通过 SuperMap SDK 加载 RoadNet 矢量路网数据
+ */
 async function loadRoadNetwork() {
+  const map = store.mapInstance
+  if (!map) return
+  roadLoading.value = true
+
   try {
-    const res = await request.get('/network/road-network', { params: { limit: 2000 } })
-    if (res.code === 200 && res.data) {
-      const map = store.mapInstance
-      if (map && map.getSource(NA_ROAD_SRC)) {
-        map.getSource(NA_ROAD_SRC).setData(res.data)
+    const url = `/iserver/services/map-changchun/rest/maps/${MAP_NAME}`
+    console.log('[路网] queryBySQL:', url)
+
+    const data = await queryBySQLAsync(url, {
+      queryParams: [
+        { name: 'RoadNet@Changchun@@长春市区图', attributeFilter: '' },
+      ],
+      returnAttribute: true,
+      returnGeometry: true,
+      expectCount: 2000,
+    })
+    console.log('[路网] 结果:', data)
+
+    // 解析 recordsets
+    let rawFeatures = []
+    if (data.recordsets) {
+      for (const rs of data.recordsets) {
+        if (rs.features?.features) {
+          rawFeatures = rawFeatures.concat(rs.features.features)
+        }
       }
     }
+    console.log('[路网] 要素数:', rawFeatures.length)
+    if (!rawFeatures.length) {
+      console.warn('[路网] 无要素')
+      return
+    }
+
+    // 坐标转换：SDK 返回的坐标是长春平面坐标，需转为 WGS84
+    const features = rawFeatures.map(f => {
+      const rawGeo = f.geometry || f.fieldGeometries?.SMGEOMETRY
+      if (!rawGeo) return null
+      // SDK 已转为 GeoJSON 格式，但坐标仍是平面值
+      let geo
+      if (rawGeo.type === 'LineString' && rawGeo.coordinates) {
+        geo = {
+          type: 'LineString',
+          coordinates: rawGeo.coordinates.map(([x, y]) => changchunToWgs84(x, y)),
+        }
+      } else {
+        geo = convertGeometry(rawGeo)
+      }
+      if (!geo || geo.type !== 'LineString') return null
+      return {
+        type: 'Feature',
+        geometry: geo,
+        properties: { name: (f.fieldValues?.length > 6 && f.fieldValues[6]) || '' },
+      }
+    }).filter(Boolean)
+
+    console.log('[路网] 转换成功:', features.length, '条道路')
+    if (map.getSource(NA_ROAD_SRC)) {
+      map.getSource(NA_ROAD_SRC).setData({ type: 'FeatureCollection', features })
+      console.log('[路网] 已设置到地图')
+    }
   } catch (e) {
-    console.warn('矢量路网加载失败:', e)
+    console.warn('[路网] 加载失败:', e)
+  } finally {
+    roadLoading.value = false
   }
 }
 
@@ -298,6 +368,76 @@ function setSource(src, features) {
   const map = store.mapInstance
   if (!map) return
   try { map.getSource(src).setData({ type: 'FeatureCollection', features }) } catch(e) {}
+}
+
+// ==================== SDK Promise 包装器 ====================
+
+/**
+ * [关键修复] SDK 底层 processAsync 依赖 instanceof 检查，且回调返回 { result, type } 包装格式。
+ * 这些包装器统一创建参数类实例 + 解包 response.result，保证 async/await 正常工作。
+ */
+
+/** 最佳路径分析 Promise 包装 — 直接用 GET 请求（绕过 SDK） */
+function findPathAsync(url, params) {
+  // 构建路径分析 URL：追加 /path.json
+  const baseUrl = url.replace(/\/+$/, '') + '/path.json'
+
+  // 构建查询参数
+  const query = new URLSearchParams()
+  // nodes: 序列化为 [{x, y}, ...] 格式的 JSON 字符串
+  query.set('nodes', JSON.stringify(params.nodes.map(p => ({ x: p.x, y: p.y }))))
+  // parameter: 序列化为 JSON 字符串
+  if (params.parameter) {
+    query.set('parameter', JSON.stringify(params.parameter))
+  }
+  query.set('hasLeastEdgeCount', String(!!params.hasLeastEdgeCount))
+
+  const requestUrl = baseUrl + '?' + query.toString()
+  console.log('[路径] GET:', requestUrl)
+
+  return fetch(requestUrl).then(r => r.json())
+}
+
+/** 服务区分析 Promise 包装 */
+function findServiceAreasAsync(url, params) {
+  return new Promise((resolve, reject) => {
+    try {
+      new NetworkAnalystService(url).findServiceAreas(
+        new FindServiceAreasParameters(params),
+        (response) => {
+          if (response.type === 'processFailed' || response.error) {
+            reject(new Error(response.error?.error || response.error || '服务区分析失败'))
+          } else {
+            resolve(response.result)
+          }
+        },
+        DataFormat.GEOJSON,
+      )
+    } catch (e) {
+      reject(e)
+    }
+  })
+}
+
+/** SQL 查询 Promise 包装 */
+function queryBySQLAsync(url, params) {
+  return new Promise((resolve, reject) => {
+    try {
+      new QueryService(url).queryBySQL(
+        new QueryBySQLParameters(params),
+        (response) => {
+          if (response.type === 'processFailed' || response.error) {
+            reject(new Error(response.error?.error || response.error || '查询失败'))
+          } else {
+            resolve(response.result)
+          }
+        },
+        DataFormat.GEOJSON,
+      )
+    } catch (e) {
+      reject(e)
+    }
+  })
 }
 
 // ==================== 点击事件 ====================
@@ -343,24 +483,43 @@ function updateDrawPoints() {
 
 // ==================== 最短路径分析 ====================
 
-/** 执行最短路径分析 */
+/**
+ * 执行最短路径分析 — 通过 SuperMap SDK
+ */
 async function execPath() {
   if (points.value.length < 2) return
   loading.value = true
   resultInfo.value = null
   try {
-    const res = await request.post('/network/shortest-path', {
-      points: points.value.map(p => [p.x, p.y]),
-      weightField: 'length',
+    const url = `/iserver/services/transportationanalyst-sample/rest/networkanalyst/RoadNet@Changchun`
+    console.log('[路径] findPath:', url)
+
+    const data = await findPathAsync(url, {
+      nodes: points.value.map(p => {
+        const [x, y] = wgs84ToChangchun(p.x, p.y)
+        return { x, y }
+      }),
+      isAnalyzeById: false,
+      hasLeastEdgeCount: false,
+      parameter: {
+        weightFieldName: 'length',
+        resultSetting: {
+          returnEdgeFeatures: true,
+          returnEdgeGeometry: true,
+          returnPathGuides: true,
+          returnRoutes: true,
+        },
+      },
     })
-    if (res.code === 200 && res.data) {
-      displayPathResult(res.data)
+    console.log('[路径] 结果:', data)
+    if (data && data.pathList) {
+      displayPathResult(data)
     } else {
-      resultInfo.value = '分析失败: ' + (res.msg || '未知错误')
+      resultInfo.value = '未找到路径'
     }
   } catch (err) {
     console.error('路径分析失败:', err)
-    resultInfo.value = '请求失败: ' + err.message
+    resultInfo.value = '请求失败: ' + (err.message || '未知错误')
   } finally {
     loading.value = false
   }
@@ -371,25 +530,23 @@ function displayPathResult(data) {
   const map = store.mapInstance
   if (!map) return
 
-  const pathList = data.pathList
-  if (!pathList || pathList.length === 0) {
+  const path = data.pathList?.[0]
+  if (!path) {
     resultInfo.value = '未找到路径'
     return
   }
 
-  // 从 pathGuideItems 中提取所有 LINE 类型的边，拼接成完整路径
+  // 从 pathGuideItems 或 route 中提取路径坐标
+  // 注意：SDK 使用 ISERVER 格式时返回原始 iServer 数据，坐标是长春平面值
   const allCoords = []
   let routeLength = 0
 
-  pathList.forEach(p => {
-    const items = p.pathGuideItems
-    if (!items) return
-
-    items.forEach(item => {
+  // 策略1：从 pathGuideItems 逐段拼接（当服务器返回了 guideItems 时）
+  if (path.pathGuideItems && Array.isArray(path.pathGuideItems) && path.pathGuideItems.length > 0) {
+    path.pathGuideItems.forEach(item => {
       if (item.isEdge && item.geometry && item.geometry.type === 'LINE') {
         const geo = convertGeometry(item.geometry)
         if (geo && geo.coordinates) {
-          // 第一个 segment 取全部点，后续跳过第一个点避免重复
           if (allCoords.length === 0) {
             allCoords.push(...geo.coordinates)
           } else {
@@ -399,7 +556,29 @@ function displayPathResult(data) {
         }
       }
     })
-  })
+  }
+
+  // 策略2：从 route 字段提取整条路径线（当 pathGuideItems 不可用时）
+  if (allCoords.length < 2 && path.route) {
+    const route = path.route
+    // route 是 LINEM 类型，结构：{ type: 'LINEM', parts: [n], points: [{x,y,measure},...] }
+    if (route.points && Array.isArray(route.points)) {
+      let points = route.points
+      // 按 parts 分段（如果有的话）
+      if (route.parts && route.parts.length > 1) {
+        // 多段线，取所有段的所有点
+        for (const part of route.parts) {
+          const segmentPoints = points.slice(0, part)
+          segmentPoints.forEach(p => allCoords.push(changchunToWgs84(p.x, p.y)))
+          points = points.slice(part)
+        }
+      } else {
+        // 单段线
+        route.points.forEach(p => allCoords.push(changchunToWgs84(p.x, p.y)))
+      }
+      routeLength = path.weight || 0
+    }
+  }
 
   if (allCoords.length < 2) {
     resultInfo.value = '未找到有效路径'
@@ -422,25 +601,38 @@ function displayPathResult(data) {
 
 // ==================== 服务区分析 ====================
 
-/** 执行服务区分析 */
+/**
+ * 执行服务区分析 — 通过 SuperMap SDK
+ */
 async function execServiceArea() {
   if (!centerPoint.value) return
   loading.value = true
   resultInfo.value = null
   try {
-    const res = await request.post('/network/service-area', {
-      center: [centerPoint.value.x, centerPoint.value.y],
+    const url = `/iserver/services/transportationanalyst-sample/rest/networkanalyst/RoadNet@Changchun`
+    console.log('[服务区] findServiceAreas:', url)
+
+    const data = await findServiceAreasAsync(url, {
+      centers: [[centerPoint.value.x, centerPoint.value.y]],
       weights: [serviceRadius.value],
-      weightField: 'length',
+      isAnalyzeById: false,
+      parameter: {
+        weightFieldName: 'length',
+        resultSetting: {
+          returnEdgeFeatures: true,
+          returnEdgeGeometry: true,
+        },
+      },
     })
-    if (res.code === 200 && res.data) {
-      displayAreaResult(res.data)
+    console.log('[服务区] 结果:', data)
+    if (data && data.serviceAreaList) {
+      displayAreaResult(data)
     } else {
-      resultInfo.value = '分析失败: ' + (res.msg || '未知错误')
+      resultInfo.value = '未生成服务区'
     }
   } catch (err) {
     console.error('服务区分析失败:', err)
-    resultInfo.value = '请求失败: ' + err.message
+    resultInfo.value = '请求失败: ' + (err.message || '未知错误')
   } finally {
     loading.value = false
   }
@@ -457,41 +649,38 @@ function displayAreaResult(data) {
     return
   }
 
-  // 提取所有 LINE 几何并转换为 WGS84
-  const allCoords = []
-  let edgeCount = 0
-
-  areaList.forEach(a => {
-    const edges = a.edgeFeatures
-    if (!edges) return
-
-    edges.forEach(edge => {
-      if (edge.geometry && edge.geometry.type === 'LINE') {
-        const geo = convertGeometry(edge.geometry)
-        if (geo && geo.coordinates && geo.coordinates.length >= 2) {
-          allCoords.push(...geo.coordinates)
-          edgeCount++
-        }
-      }
-    })
-  })
-
-  if (allCoords.length < 2) {
-    resultInfo.value = '未生成有效服务区'
-    return
-  }
-
   // 将边显示为线图层
-  const features = areaList.flatMap(a =>
-    (a.edgeFeatures || [])
-      .filter(e => e.geometry && e.geometry.type === 'LINE')
-      .map(e => ({
-        type: 'Feature',
-        geometry: convertGeometry(e.geometry),
-        properties: { name: (e.fieldValues && e.fieldValues[9]) || '' },
-      }))
-      .filter(f => f.geometry && f.geometry.coordinates)
-  )
+  // SDK 返回的 edgeFeatures 已被 toGeoJSONResult 转为 GeoJSON FeatureCollection
+  const features = areaList.flatMap(a => {
+    if (!a.edgeFeatures) return []
+
+    if (a.edgeFeatures.type === 'FeatureCollection' && a.edgeFeatures.features) {
+      // GeoJSON FeatureCollection 格式
+      return a.edgeFeatures.features
+        .filter(f => f.geometry?.type === 'LineString')
+        .map(f => ({
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: f.geometry.coordinates.map(([x, y]) => changchunToWgs84(x, y)),
+          },
+          properties: { name: (f.properties?.name) || '' },
+        }))
+    }
+
+    if (Array.isArray(a.edgeFeatures)) {
+      // 原始 iServer 格式（fallback）
+      return a.edgeFeatures
+        .filter(e => e.geometry && e.geometry.type === 'LINE')
+        .map(e => ({
+          type: 'Feature',
+          geometry: convertGeometry(e.geometry),
+          properties: { name: (e.fieldValues && e.fieldValues[9]) || '' },
+        }))
+    }
+
+    return []
+  })
 
   if (features.length === 0) {
     resultInfo.value = '未生成有效服务区'
@@ -500,12 +689,13 @@ function displayAreaResult(data) {
 
   setSource(NA_AREA_SRC, features)
 
-  // 缩放到结果范围
+  // 计算范围并缩放到结果范围
+  const allCoords = features.flatMap(f => f.geometry.coordinates)
   const bounds = new mapboxgl.LngLatBounds()
   allCoords.forEach(c => bounds.extend(c))
   if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 50 })
 
-  resultInfo.value = `服务区分析完成 (${edgeCount} 条路段)`
+  resultInfo.value = `服务区分析完成 (${features.length} 条路段)`
 }
 
 // ==================== 清除操作 ====================
@@ -515,8 +705,6 @@ function clearAll() {
   points.value = []
   centerPoint.value = null
   resultInfo.value = null
-  pathResult.value = null
-  areaResult.value = null
   setSource(NA_DRAW_SRC, [])
   setSource(NA_PATH_SRC, [])
   setSource(NA_AREA_SRC, [])
