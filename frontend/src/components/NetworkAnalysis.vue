@@ -212,23 +212,44 @@ function restoreMap() {
 
 /**
  * 加载长春市区图作为底图背景
- * 使用 iServer tileImage 服务，将平面坐标系映射到 WGS84 经纬度
+ * 使用 iServer tileImage 服务，以 viewBounds 显式指定请求范围（匹配整图 bounds），
+ * 并将返回图片精确映射到对应的 WGS84 四角，确保与矢量路网对齐。
  */
 function loadChangchunTile() {
   const map = store.mapInstance
   if (!map) return
 
-  // 长春市区底图中心点（平面坐标）
-  const cx = 4503, cy = -3862
-  const centerJson = JSON.stringify({ x: cx, y: cy })
-  const url = `${ISERVER_URL}/iserver/services/map-changchun/rest/maps/${MAP_NAME}/tileImage.png`
-    + `?width=1024&height=1024&center=${encodeURIComponent(centerJson)}`
+  // ============== 可调参数（修改这里就能改变底图覆盖范围/清晰度） ==============
+  // 平面坐标范围：必须和 map.js 中 CC.xMin/xMax/yMin/yMax 保持一致
+  // 否则底图和矢量路网会出现系统性偏移或缩放不一致
+  const xMin = 47.5066, xMax = 8958.0372
+  const yMin = -7668.9829, yMax = -54.7406
 
-  // 将平面坐标范围映射到 WGS84 四角坐标（NW → NE → SE → SW）
-  const nw = changchunToWgs84(47, -55)
-  const ne = changchunToWgs84(8958, -55)
-  const se = changchunToWgs84(8958, -7669)
-  const sw = changchunToWgs84(47, -7669)
+  // 图片像素分辨率：越大越清晰，但文件越大、加载越慢
+  // 建议 1024 / 2048 / 4096 / 8192
+  const basePx = 4096
+  // ====================================================================
+
+  const dx = xMax - xMin
+  const dy = yMax - yMin
+  const imgW = Math.round(basePx)
+  const imgH = Math.round(basePx * dy / dx)
+
+  // 使用 image.png + viewBounds 显式指定平面坐标范围，可以稳定地把整张长春市区图铺满指定像素尺寸的 PNG。
+  // 注意：必须用 image.png 而非 tileImage.png；tileImage.png 在当前版本的 iServer 上对 viewBounds 支持不稳定，
+  // 常出现"只在左上角渲染一小块，其余全白"的问题。
+  const vb = encodeURIComponent(JSON.stringify({
+    leftBottom: { x: xMin, y: yMin },
+    rightTop: { x: xMax, y: yMax },
+  }))
+  const url = `${ISERVER_URL}/iserver/services/map-changchun/rest/maps/${MAP_NAME}/image.png`
+    + `?width=${imgW}&height=${imgH}&viewBounds=${vb}&transparent=false&cacheEnabled=false`
+
+  // 四角坐标（NW → NE → SE → SW），与 map.js 中 CC 的经纬度范围保持一致
+  const nw = changchunToWgs84(xMin, yMax)
+  const ne = changchunToWgs84(xMax, yMax)
+  const se = changchunToWgs84(xMax, yMin)
+  const sw = changchunToWgs84(xMin, yMin)
   const coords = [[nw[0], nw[1]], [ne[0], ne[1]], [se[0], se[1]], [sw[0], sw[1]]]
 
   // 更新或创建 ImageSource（放在分析图层下方）
@@ -236,7 +257,16 @@ function loadChangchunTile() {
     map.getSource(NA_BG_IMAGE).updateImage({ url, coordinates: coords })
   } else {
     map.addSource(NA_BG_IMAGE, { type: 'image', url, coordinates: coords })
-    map.addLayer({ id: NA_BG_IMAGE, type: 'raster', source: NA_BG_IMAGE }, 'na-road-line')
+    map.addLayer({
+      id: NA_BG_IMAGE,
+      type: 'raster',
+      source: NA_BG_IMAGE,
+      paint: {
+        'raster-opacity': 1,
+        'raster-brightness-min': 0,
+        'raster-brightness-max': 1,
+      },
+    }, 'na-road-line')
     store.addLayer({ id: NA_BG_IMAGE, name: '长春市区底图', visible: true, opacity: 1 })
   }
 }

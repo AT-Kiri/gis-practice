@@ -58,11 +58,15 @@ export function toGeoJSON(data) {
  * 平面坐标来源: RoadNet@Changchun 数据集 datasetInfo.bounds
  * WGS84 对应: 长春市区地理范围
  */
+// 平面坐标范围来自 iServer RoadNet@Changchun 数据集的 bounds（47.51 ~ 8958.04, -7668.98 ~ -54.74）。
+// 与 NetworkAnalysis 中底图 viewBounds 请求保持一致，确保底图与矢量路网精确对齐。
+// 经纬度范围按平面宽高比 (8910.53 : 7614.24 ≈ 1.1705) 构造，以长春中心 (125.3°E, 43.87°N) 为参考点：
+//   经度宽 0.30° → 纬度高 0.30° / 1.1705 ≈ 0.2563°，这样 image.png 中的地物与道路线在 Mapbox 画布上等比映射。
 const CC = {
-  lngMin: 125.1, lngMax: 125.5,
-  latMin: 43.7, latMax: 44.0,
-  xMin: 47, xMax: 8958,
-  yMin: -7669, yMax: -55,
+  lngMin: 125.15, lngMax: 125.45,
+  latMin: 43.74185, latMax: 43.99815,
+  xMin: 47.5066, xMax: 8958.0372,
+  yMin: -7668.9829, yMax: -54.7406,
 }
 
 /**
