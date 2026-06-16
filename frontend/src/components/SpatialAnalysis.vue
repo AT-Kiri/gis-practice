@@ -131,8 +131,18 @@ import {
   DeleteOutlined, ApiOutlined,
 } from '@ant-design/icons-vue'
 import { useMapStore } from '../stores/map'
-import { ISERVER_URL, geoJSONToServerGeo, serverGeoToGeoJSON } from '../utils/map'
+import { ISERVER_URL } from '../utils/map'
 import mapboxgl from 'mapbox-gl'
+import { message } from 'ant-design-vue'
+import { DataFormat, BufferEndType, BufferRadiusUnit, DataReturnMode } from '@supermap/iclient-common/REST'
+import { GeoJSON } from '@supermap/iclient-common/format/GeoJSON'
+import { BufferAnalystService } from '@supermap/iclient-common/iServer/BufferAnalystService'
+import { OverlayAnalystService } from '@supermap/iclient-common/iServer/OverlayAnalystService'
+import { GeometryBufferAnalystParameters } from '@supermap/iclient-common/iServer/GeometryBufferAnalystParameters'
+import { DatasetOverlayAnalystParameters } from '@supermap/iclient-common/iServer/DatasetOverlayAnalystParameters'
+import { BufferSetting } from '@supermap/iclient-common/iServer/BufferSetting'
+import { BufferDistance } from '@supermap/iclient-common/iServer/BufferDistance'
+import { DataReturnOption } from '@supermap/iclient-common/iServer/DataReturnOption'
 
 const emit = defineEmits(['close'])
 const store = useMapInstance()
@@ -311,39 +321,71 @@ function clearDraw() {
 
 // ==================== 缓冲区分析 ====================
 
-/** 执行缓冲区分析：直接调用 iServer 空间分析服务 */
+/** Promise 包装器：缓冲区分析 */
+function bufferAnalysisAsync(url, params) {
+  return new Promise((resolve, reject) => {
+    try {
+      new BufferAnalystService(url, { format: DataFormat.GEOJSON }).processAsync(
+        new GeometryBufferAnalystParameters(params),
+        (response) => {
+          if (response.type === 'processFailed' || response.error) {
+            const errorDetail = response.error?.error || response.error || JSON.stringify(response)
+            console.error('缓冲区分析服务返回错误:', response)
+            reject(new Error(typeof errorDetail === 'string' ? errorDetail : '缓冲区分析失败'))
+          } else {
+            resolve(response.result)
+          }
+        }
+      )
+    } catch (e) {
+      reject(e)
+    }
+  })
+}
+
+/** 将米为单位的距离转换为度（基于 WGS84 近似） */
+function metersToDegrees(meters, latitude) {
+  const metersPerDegreeLat = 111000
+  const metersPerDegreeLng = 111000 * Math.cos((latitude || 39.9) * Math.PI / 180)
+  return meters / ((metersPerDegreeLat + metersPerDegreeLng) / 2)
+}
+
+/** 执行缓冲区分析：使用超图 SDK */
 async function execBuffer() {
   if (!drawnGeo.value) return
   loading.value = true
   try {
-    // 将用户绘制的 GeoJSON 几何转为 iServer Server JSON 格式
-    const serverGeo = geoJSONToServerGeo(drawnGeo.value)
-    if (!serverGeo) throw new Error('不支持的几何类型')
+    const url = `${ISERVER_URL}/iserver/services/spatialanalyst-sample/restjsr/spatialanalyst`
+    const geoJSONFormat = new GeoJSON()
+    const smGeometry = geoJSONFormat.read(drawnGeo.value, 'Geometry')
+    if (!smGeometry) throw new Error('几何对象转换失败')
 
-    const url = `${ISERVER_URL}/iserver/services/spatialanalyst-sample/restjsr/spatialanalyst/geometry/buffer.json?returnContent=true`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sourceGeometry: serverGeo,
-        analystParameter: {
-          endType: 'ROUND',
-          leftDistance: { value: bufferDistance.value },
-          rightDistance: { value: bufferDistance.value },
-          semicircleLineSegment: 10,
-        },
+    // GeometryBufferAnalyst 在 WGS84 下单位是度，需将米转为度
+    const lat = drawnGeo.value.type === 'Point'
+      ? drawnGeo.value.coordinates[1]
+      : 39.9
+    const degreeDistance = metersToDegrees(bufferDistance.value, lat)
+
+    const data = await bufferAnalysisAsync(url, {
+      sourceGeometry: smGeometry,
+      bufferSetting: new BufferSetting({
+        endType: BufferEndType.ROUND,
+        leftDistance: new BufferDistance({ value: degreeDistance }),
+        rightDistance: new BufferDistance({ value: degreeDistance }),
+        semicircleLineSegment: 10,
       }),
     })
-    if (!res.ok) throw new Error('缓冲区分析失败 (' + res.status + ')')
-    const data = await res.json()
-    if (data.succeed !== false && data.resultGeometry) {
-      // 将 Server JSON 格式的结果几何转为 GeoJSON
-      const resultGeo = serverGeoToGeoJSON(data.resultGeometry)
+    if (data && data.resultGeometry) {
+      // SDK 返回的 resultGeometry 可能是 GeoJSON Feature，提取 geometry
+      const resultGeo = data.resultGeometry.type === 'Feature'
+        ? data.resultGeometry.geometry
+        : data.resultGeometry
       showResult({ resultGeometry: resultGeo })
       hasResult.value = true
     }
   } catch (err) {
     console.error('缓冲区分析失败:', err)
+    message.error('缓冲区分析失败: ' + err.message)
   } finally {
     loading.value = false
   }
@@ -351,66 +393,50 @@ async function execBuffer() {
 
 // ==================== 叠置分析 ====================
 
-/** 叠置分析的数据服务名称 */
-const DATA_SERVICE = 'data-jingjin'
+/** Promise 包装器：叠置分析 */
+function overlayAnalysisAsync(url, params) {
+  return new Promise((resolve, reject) => {
+    try {
+      new OverlayAnalystService(url, { format: DataFormat.GEOJSON }).processAsync(
+        new DatasetOverlayAnalystParameters(params),
+        (response) => {
+          if (response.type === 'processFailed' || response.error) {
+            const errorDetail = response.error?.error || response.error || JSON.stringify(response)
+            console.error('叠置分析服务返回错误:', response)
+            reject(new Error(typeof errorDetail === 'string' ? errorDetail : '叠置分析失败'))
+          } else {
+            resolve(response.result)
+          }
+        }
+      )
+    } catch (e) {
+      reject(e)
+    }
+  })
+}
 
-/** 执行叠置分析：直接调用 iServer 空间分析服务 */
+/** 执行叠置分析：使用超图 SDK */
 async function execOverlay() {
   loading.value = true
   try {
-    // Step 1: 调用叠置分析，创建结果数据集
-    const overlayUrl = `${ISERVER_URL}/iserver/services/spatialanalyst-sample/restjsr/spatialanalyst/datasets/${overlaySource.value}/overlay.json?returnContent=true`
-    let res = await fetch(overlayUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        operateDataset: overlayOperate.value,
-        operation: overlayOperation.value,
-        tolerance: 0,
+    const url = `${ISERVER_URL}/iserver/services/spatialanalyst-sample/restjsr/spatialanalyst`
+    const data = await overlayAnalysisAsync(url, {
+      sourceDataset: overlaySource.value,
+      operateDataset: overlayOperate.value,
+      operation: overlayOperation.value,
+      tolerance: 0,
+      resultSetting: new DataReturnOption({
+        dataReturnMode: DataReturnMode.DATASET_AND_RECORDSET,
+        expectCount: 1000,
       }),
     })
-    if (!res.ok) throw new Error('叠置分析失败 (' + res.status + ')')
-    const overlayData = await res.json()
-    if (overlayData.succeed === false) throw new Error(overlayData.error?.errorMsg || '叠置分析失败')
-
-    // Step 2: 从结果数据集查询要素
-    const resultDataset = overlayData.dataset  // 如 "RS_xxx@Jingjin"
-    const dataSourceName = resultDataset.split('@')[1]  // "Jingjin"
-    const tableName = resultDataset.split('@')[0]       // "RS_xxx"
-    const featureUrl = `${ISERVER_URL}/iserver/services/${DATA_SERVICE}/rest/data/featureResults.json?returnContent=true`
-    res = await fetch(featureUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        getFeatureMode: 'SQL',
-        datasetNames: [`${dataSourceName}:${tableName}`],
-        attributeFilter: 'SMID > 0',
-        returnContent: true,
-        fromIndex: 0,
-        toIndex: 10000,
-      }),
-    })
-    if (!res.ok) throw new Error('查询叠置结果失败 (' + res.status + ')')
-    const featureData = await res.json()
-
-    // Step 3: 将 features 转为标准 GeoJSON FeatureCollection
-    const features = (featureData.features || []).map(f => {
-      const props = {}
-      if (f.fieldNames && f.fieldValues) {
-        f.fieldNames.forEach((name, i) => { props[name] = f.fieldValues[i] })
-      }
-      return {
-        type: 'Feature',
-        geometry: serverGeoToGeoJSON(f.geometry),
-        properties: props,
-      }
-    }).filter(f => f.geometry)
-    const featureCollection = { type: 'FeatureCollection', features }
-
-    showResult({ features: featureCollection })
-    hasResult.value = true
+    if (data && data.recordset && data.recordset.features) {
+      showResult({ features: data.recordset.features })
+      hasResult.value = true
+    }
   } catch (err) {
     console.error('叠置分析失败:', err)
+    message.error('叠置分析失败: ' + err.message)
   } finally {
     loading.value = false
   }
