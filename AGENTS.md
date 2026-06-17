@@ -25,9 +25,13 @@
 | 层级 | 文件/目录 | 加载方式 | 作用 |
 |------|----------|---------|------|
 | 入口 | `AGENTS.md` | 自动加载 | 项目入口、导航索引 |
+| 规则 | `.trae/rules/project_rules.md` | 自动加载 | Git 规范、命名规范、目录结构、安全规范 |
 | 规则 | `.trae/rules/coding_guidelines.md` | 按需加载 | AI 编码行为准则 |
-| 文档 | `.trae/docs/workflows.md` | 按需加载 | 角色工作流、协作流程 |
-| 技能 | `.trae/skills/<skill-name>/SKILL.md` | 按需加载 | 特定技术栈的操作指南、模板 |
+| 规则 | `.trae/rules/frontend_rules.md` | 按需加载 | Vue 3 + AntD + SuperMap 编码规范 |
+| 文档 | `.trae/docs/workflows.md` | 按需加载 | 角色工作流、OpenSpec 规范流程 |
+| 规范 | `openspec/changes/<change-id>/` | 按需加载 | 单次变更的方案设计、规格、任务、验收清单 |
+| 知识库 | `.trae/knowledge/` | 按需加载 | 项目全景 INDEX.md + 决策日志 decisions.md |
+| 技能 | `.trae/skills/<skill-name>/SKILL.md` | 按需加载 | code-review、req-doc-gen 等 |
 
 **加载原则**：
 - **自动加载**：`AGENTS.md` 为全局上下文，每次提问自动加载
@@ -41,9 +45,13 @@
 | 文档 | 内容说明 |
 |------|---------|
 | [project-brief.md](file:///d:/Code/AI-Code/GIS-Practice/project-brief.md) | 项目概要：技术栈、数据资源、功能模块设计 |
+| [project_rules.md](.trae/rules/project_rules.md) | 项目规范：目录结构、Git 提交、命名、安全 |
+| [frontend_rules.md](.trae/rules/frontend_rules.md) | 前端规范：Vue 3 + AntD + SuperMap 编码规范 |
 | [coding_guidelines.md](.trae/rules/coding_guidelines.md) | AI 编码行为准则：编码前思考、简洁优先、精准修改 |
-| [workflows.md](.trae/docs/workflows.md) | 角色工作流、协作流程、Spec-Driven 工作流 |
-| `.trae/skills/` | 技能库：需求文档生成、wiki 维护等 |
+| [workflows.md](.trae/docs/workflows.md) | 角色工作流、协作流程、OpenSpec 规范流程 |
+| `openspec/changes/` | OpenSpec 设计文档：proposal → design → spec → tasks → checklist |
+| `.trae/knowledge/` | 项目知识库：INDEX.md（全景图）+ decisions.md（决策日志） |
+| `.trae/skills/` | 技能库：code-review、req-doc-gen、awesome-design-md 等 |
 
 ## 4. 项目目录结构
 
@@ -63,6 +71,11 @@ GIS-Practice/
 │       ├── config/         # 配置
 │       ├── common/         # 通用响应
 │       └── util/           # 工具类
+├── .trae/                  # Trae IDE 配置
+│   ├── rules/              # AI 编码规范
+│   ├── docs/               # 工作流文档
+│   ├── knowledge/          # 项目知识库
+│   └── skills/             # AI 技能
 ├── openspec/               # OpenSpec 设计文档
 └── 资料/                   # 课程资料
 ```
