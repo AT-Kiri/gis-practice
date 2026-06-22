@@ -82,30 +82,34 @@
           <div class="section-label">选择数据集与操作类型</div>
           <div class="overlay-field">
             <span class="field-label">源数据集</span>
-            <a-select v-model:value="overlaySource" size="small" style="width:100%">
-              <a-select-option value="Landuse_R@Jingjin">土地利用 (Landuse_R)</a-select-option>
-              <a-select-option value="Geomor_R@Jingjin">地貌 (Geomor_R)</a-select-option>
-              <a-select-option value="BaseMap_R@Jingjin">基础底图 (BaseMap_R)</a-select-option>
-              <a-select-option value="Lake_R@Jingjin">湖泊 (Lake_R)</a-select-option>
-            </a-select>
+            <a-tooltip :title="DATASET_META[overlaySource]?.description || ''" placement="right">
+              <a-select v-model:value="overlaySource" size="small" style="width:100%" @change="onSourceChange">
+                <a-select-opt-group v-for="(items, category) in groupedDatasets" :key="category" :label="category">
+                  <a-select-option v-for="ds in items" :key="ds.value" :value="ds.value">{{ ds.label }}</a-select-option>
+                </a-select-opt-group>
+              </a-select>
+            </a-tooltip>
           </div>
           <div class="overlay-field">
             <span class="field-label">操作数据集</span>
-            <a-select v-model:value="overlayOperate" size="small" style="width:100%">
-              <a-select-option value="Geomor_R@Jingjin">地貌 (Geomor_R)</a-select-option>
-              <a-select-option value="Landuse_R@Jingjin">土地利用 (Landuse_R)</a-select-option>
-              <a-select-option value="BaseMap_R@Jingjin">基础底图 (BaseMap_R)</a-select-option>
-              <a-select-option value="Lake_R@Jingjin">湖泊 (Lake_R)</a-select-option>
-            </a-select>
+            <a-tooltip :title="DATASET_META[overlayOperate]?.description || ''" placement="right">
+              <a-select v-model:value="overlayOperate" size="small" style="width:100%">
+                <a-select-option v-for="ds in filteredOperateDatasets" :key="ds.value" :value="ds.value">
+                  <span v-if="DATASET_META[overlaySource]?.pairings?.recommended?.includes(ds.value)" style="color:#1890ff">★ {{ ds.label }}</span>
+                  <span v-else>{{ ds.label }}</span>
+                </a-select-option>
+              </a-select>
+            </a-tooltip>
           </div>
           <div class="overlay-field">
             <span class="field-label">操作类型</span>
-            <a-select v-model:value="overlayOperation" size="small" style="width:100%">
-              <a-select-option value="UNION">并集 (UNION)</a-select-option>
-              <a-select-option value="INTERSECT">交集 (INTERSECT)</a-select-option>
-              <a-select-option value="ERASE">擦除 (ERASE)</a-select-option>
-              <a-select-option value="CLIP">裁剪 (CLIP)</a-select-option>
-            </a-select>
+            <a-tooltip :title="OPERATION_META[overlayOperation]?.description || ''" placement="right">
+              <a-select v-model:value="overlayOperation" size="small" style="width:100%">
+                <a-select-option v-for="op in availableOperations" :key="op" :value="op">
+                  {{ OPERATION_META[op]?.name || op }} ({{ op }})
+                </a-select-option>
+              </a-select>
+            </a-tooltip>
           </div>
         </div>
 
@@ -125,7 +129,7 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import {
   CloseOutlined, PushpinOutlined, LineOutlined, BorderOutlined,
   DeleteOutlined, ApiOutlined,
@@ -174,6 +178,165 @@ let drawListeners = []
 const overlaySource = ref('Landuse_R@Jingjin')
 const overlayOperate = ref('Geomor_R@Jingjin')
 const overlayOperation = ref('UNION')
+
+/** 数据集元数据配置：中文名、分类、描述、推荐配对 */
+const DATASET_META = {
+  'Landuse_R@Jingjin': {
+    name: '土地利用',
+    category: '人文地理',
+    description: '京津地区土地利用分类矢量数据',
+    pairings: { recommended: ['Geomor_R@Jingjin', 'City_R@Jingjin'], supported: ['BaseMap_R@Jingjin', 'Lake_R@Jingjin', 'River_R@Jingjin'] },
+    operations: ['UNION', 'INTERSECT', 'ERASE', 'CLIP'],
+  },
+  'Geomor_R@Jingjin': {
+    name: '地貌',
+    category: '自然地理',
+    description: '地貌类型分区矢量数据',
+    pairings: { recommended: ['Landuse_R@Jingjin'], supported: ['City_R@Jingjin', 'BaseMap_R@Jingjin', 'Lake_R@Jingjin'] },
+    operations: ['UNION', 'INTERSECT', 'CLIP'],
+  },
+  'BaseMap_R@Jingjin': {
+    name: '基础底图',
+    category: '基础地理',
+    description: '基础地理底图矢量数据',
+    pairings: { recommended: ['Landuse_R@Jingjin', 'City_R@Jingjin'], supported: ['Geomor_R@Jingjin', 'Lake_R@Jingjin'] },
+    operations: ['UNION', 'INTERSECT', 'CLIP'],
+  },
+  'Lake_R@Jingjin': {
+    name: '湖泊',
+    category: '水文',
+    description: '湖泊水域分布矢量数据',
+    pairings: { recommended: ['Landuse_R@Jingjin'], supported: ['Geomor_R@Jingjin', 'BaseMap_R@Jingjin', 'City_R@Jingjin'] },
+    operations: ['UNION', 'INTERSECT', 'ERASE', 'CLIP'],
+  },
+  'River_R@Jingjin': {
+    name: '河流',
+    category: '水文',
+    description: '河流水系分布矢量数据',
+    pairings: { recommended: ['Landuse_R@Jingjin'], supported: ['Geomor_R@Jingjin', 'BaseMap_R@Jingjin', 'City_R@Jingjin'] },
+    operations: ['INTERSECT', 'CLIP'],
+  },
+  'City_R@Jingjin': {
+    name: '城市',
+    category: '人文地理',
+    description: '城市建成区分布矢量数据',
+    pairings: { recommended: ['Landuse_R@Jingjin', 'BaseMap_R@Jingjin'], supported: ['Geomor_R@Jingjin', 'Lake_R@Jingjin', 'River_R@Jingjin'] },
+    operations: ['UNION', 'INTERSECT', 'ERASE', 'CLIP'],
+  },
+}
+
+/** 分析类型元数据 */
+const OPERATION_META = {
+  UNION: { name: '并集', description: '合并两个数据集的全部区域' },
+  INTERSECT: { name: '交集', description: '保留两个数据集的重叠区域' },
+  ERASE: { name: '擦除', description: '从源数据集中去除与操作数据集重叠的部分' },
+  CLIP: { name: '裁剪', description: '用操作数据集边界裁剪源数据集' },
+}
+
+/** 从 iServer 动态获取的数据集列表 */
+const datasetList = ref([])
+
+/** 按分类分组后的数据集 */
+const groupedDatasets = computed(() => {
+  const groups = {}
+  datasetList.value.forEach(ds => {
+    const cat = ds.category || '其他'
+    if (!groups[cat]) groups[cat] = []
+    groups[cat].push(ds)
+  })
+  return groups
+})
+
+/** 根据源数据集过滤后的操作数据集选项 */
+const filteredOperateDatasets = computed(() => {
+  const source = overlaySource.value
+  const meta = DATASET_META[source]
+  const all = datasetList.value.filter(ds => ds.value !== source)
+  if (!meta) return all
+
+  // 推荐的排前面
+  const recommended = meta.pairings.recommended || []
+  const supported = meta.pairings.supported || []
+  return all.sort((a, b) => {
+    const aRec = recommended.includes(a.value)
+    const bRec = recommended.includes(b.value)
+    const aSup = supported.includes(a.value)
+    const bSup = supported.includes(b.value)
+    if (aRec && !bRec) return -1
+    if (!aRec && bRec) return 1
+    if (aSup && !bSup) return -1
+    if (!aSup && bSup) return 1
+    return 0
+  })
+})
+
+/** 当前源-操作配对支持的分析类型 */
+const availableOperations = computed(() => {
+  const sourceMeta = DATASET_META[overlaySource.value]
+  const operateMeta = DATASET_META[overlayOperate.value]
+  if (!sourceMeta || !operateMeta) return Object.keys(OPERATION_META)
+
+  const sourceOps = new Set(sourceMeta.operations)
+  const operateOps = new Set(operateMeta.operations)
+  return Object.keys(OPERATION_META).filter(op => sourceOps.has(op) && operateOps.has(op))
+})
+
+/** 源数据集变化时，自动选择推荐的操作数据集 */
+function onSourceChange(value) {
+  const meta = DATASET_META[value]
+  if (meta && meta.pairings.recommended.length > 0) {
+    const firstRec = meta.pairings.recommended[0]
+    // 确保推荐项在可用列表中
+    if (datasetList.value.some(ds => ds.value === firstRec)) {
+      overlayOperate.value = firstRec
+    } else {
+      //  fallback：选择第一个非自身的数据集
+      const firstOther = datasetList.value.find(ds => ds.value !== value)
+      if (firstOther) overlayOperate.value = firstOther.value
+    }
+  } else {
+    const firstOther = datasetList.value.find(ds => ds.value !== value)
+    if (firstOther) overlayOperate.value = firstOther.value
+  }
+  // 自动选择第一个可用的分析类型
+  const ops = availableOperations.value
+  if (ops.length > 0) overlayOperation.value = ops[0]
+}
+
+/** 动态获取 iServer 数据集列表 */
+async function fetchDatasetList() {
+  try {
+    const url = `${ISERVER_URL}/iserver/services/data-jingjin/rest/data/datasources/Jingjin/datasets.json`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error('获取数据集列表失败')
+    const data = await res.json()
+    const list = (data.datasetNames || []).map(name => {
+      const fullName = `${name}@Jingjin`
+      const meta = DATASET_META[fullName]
+      return {
+        value: fullName,
+        label: meta ? `${meta.name} (${name})` : name,
+        category: meta?.category || '其他',
+        description: meta?.description || '',
+        rawName: name,
+      }
+    })
+    datasetList.value = list
+  } catch (err) {
+    console.error('获取数据集列表失败:', err)
+    // 降级：使用静态配置
+    datasetList.value = Object.keys(DATASET_META).map(fullName => {
+      const meta = DATASET_META[fullName]
+      return {
+        value: fullName,
+        label: `${meta.name} (${fullName.split('@')[0]})`,
+        category: meta.category,
+        description: meta.description,
+        rawName: fullName.split('@')[0],
+      }
+    })
+  }
+}
 
 // 图层 Source 名称
 const DRAW_SOURCE = 'sa-draw'
@@ -489,6 +652,10 @@ function clearAll() {
   clearDraw()
   clearResult()
 }
+
+onMounted(() => {
+  fetchDatasetList()
+})
 
 onUnmounted(() => {
   clearAll()
