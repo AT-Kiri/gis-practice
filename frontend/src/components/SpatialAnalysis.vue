@@ -661,10 +661,19 @@ onUnmounted(() => {
   clearAll()
   const map = getMap()
   if (map) {
+    // 先检查图层是否存在再移除，避免 mapbox-gl 触发内部 error 事件
+    const drawLayers = ['sa-draw-fill', 'sa-draw-line', 'sa-draw-point']
+    const resultLayers = ['sa-result-fill', 'sa-result-line']
+    ;[...drawLayers, ...resultLayers].forEach(id => {
+      if (map.getLayer(id)) {
+        try { map.removeLayer(id) } catch (e) {}
+      }
+    })
+    // 移除数据源
     ;[DRAW_SOURCE, RESULT_SOURCE].forEach(id => {
-      try { map.removeLayer('sa-draw-fill'); map.removeLayer('sa-draw-line'); map.removeLayer('sa-draw-point') } catch(e) {}
-      try { map.removeLayer('sa-result-fill'); map.removeLayer('sa-result-line') } catch(e) {}
-      try { map.removeSource(id) } catch(e) {}
+      if (map.getSource(id)) {
+        try { map.removeSource(id) } catch (e) {}
+      }
     })
   }
 })
