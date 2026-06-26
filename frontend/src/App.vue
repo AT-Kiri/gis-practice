@@ -35,6 +35,15 @@
             <ThunderboltOutlined />
             <span>三维洪水模拟</span>
           </a-button>
+          <a-button
+            type="text"
+            class="nav-btn"
+            :class="{ 'nav-btn--active': $route.name === 'data-dashboard' }"
+            @click="$router.push('/data-dashboard')"
+          >
+            <DashboardOutlined />
+            <span>数据大屏</span>
+          </a-button>
           <a-divider type="vertical" style="border-color: rgba(255,255,255,0.15); height: 20px;" />
           <div class="header-status">
             <span class="status-dot" />
@@ -51,7 +60,7 @@
 </template>
 
 <script setup>
-import { SafetyCertificateOutlined, AppstoreOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
+import { SafetyCertificateOutlined, AppstoreOutlined, ThunderboltOutlined, DashboardOutlined } from '@ant-design/icons-vue'
 </script>
 
 <style scoped>

@@ -27,9 +27,10 @@ GIS-Practice/
 │       └── util/           # 工具类
 ├── openspec/               # OpenSpec 设计文档
 │   └── changes/<change-id>/
+├── docs/                   # 文档与课程资料
 └── .trae/                  # Trae IDE 配置
     ├── rules/              # AI 编码规范
-    ├── docs/               # 工作流文档
+    ├── docs/               # 工作流 + 课程资料
     ├── knowledge/          # 项目知识库
     └── skills/             # AI 技能
 ```

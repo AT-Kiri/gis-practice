@@ -185,7 +185,7 @@ D:\SuperMap\SuperMap iDesktopX 2025\SuperMap iDesktopX.exe
 2. **启动 iServer** 发布服务，验证 `map-jingjin` 等服务可访问
 3. **前后端分离开发**：Vue3 前端 + SpringBoot 后端
 4. 前端使用 npm 安装 `@supermap/vue-iclient-mapboxgl`（或从本地 SDK 引入）
-5. 参考优秀案例中 2024 年"应急物资调度系统"的文档结构（`资料/13 课程设计报告优秀案例.pdf`）
+5. 参考优秀案例中 2024 年"应急物资调度系统"的文档结构（`.trae/docs/project/GIS应用工程实践/13 课程设计报告优秀案例.pdf`）
 
 ## 七、OpenSpec 启动指引
 
@@ -193,10 +193,10 @@ D:\SuperMap\SuperMap iDesktopX 2025\SuperMap iDesktopX.exe
 
 ```
 openspec init          → 初始化 OpenSpec
-openspec spec 编写项目规格说明书
-openspec design 设计系统架构
+openspec spec          → 编写项目规格说明书
+openspec design        → 设计系统架构
 → 编码实现
 ```
 
-参考资料路径：`D:\Code\AI-Code\GIS-Practice\资料\GIS应用工程实践\`
+参考资料路径：`.trae/docs/project/GIS应用工程实践/`
 （含课程大纲、实验指导书、文献综述模板、设计报告模板、优秀案例等）

@@ -46,14 +46,16 @@
 │  → Developer 以前端为主（Vue3 + Ant Design Vue + SuperMap）              │
 │  → 后端按需扩展（SpringBoot REST API）                                   │
 │  → 遵循 project_rules.md / frontend_rules.md 规范                        │
+│  → 【CodeGraph】编码前更新索引 → 分析目标模块调用链/依赖图，避免漏改    │
 └────────────────────────────────────────────────────────────────────────┘
     │
     ▼
 ┌─ Phase 4: 验收与知识同步 ──────────────────────────────────────────────┐
-│  Step 1: 核对 checklist.md 逐项验收                                     │
-│  Step 2: 【Skill】code-review → 代码审查                                │
-│  Step 3: 同步更新 .trae/knowledge/INDEX.md + decisions.md（你确认后）   │
-│  Step 4: git commit （采用 Angular 风格提交信息）                        │
+│  Step 1: 【CodeGraph】更新索引 → 审查修改范围，检查是否有遗漏引用/调用  │
+│  Step 2: 核对 checklist.md 逐项验收                                     │
+│  Step 3: 【Skill】code-review → 代码审查                                │
+│  Step 4: 同步更新 .trae/knowledge/INDEX.md + decisions.md（你确认后）   │
+│  Step 5: git commit （采用 Angular 风格提交信息）                        │
 │  → 更新后我会告诉你，你可以花 1 分钟审查知识库                           │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -123,10 +125,15 @@ openspec/
 - **按需加载**：其他规则文件根据当前任务类型选择性加载
 - **显式引用**：AI Agent 在需要时应主动读取对应规则文件
 
-### 4.2 Skill 调用对照表
+### 4.2 Skill / MCP 调用对照表
 
-| Skill | 调用时机 | 输出 |
-|-------|----------|------|
+| Skill / MCP 工具 | 调用时机 | 输出 |
+|-----------------|----------|------|
+| **MCP** `codegraph_explore` | 编码前分析模块结构；验收前审查修改范围 | 代码结构 + 调用路径 |
+| **MCP** `codegraph_node` | 编码中查看单个符号的源码+调用链 | 符号源码 + 调用者/被调用者 |
+| **MCP** `codegraph_callers` | 查询"谁调用了这个方法" | 调用方列表 |
+| **MCP** `codegraph_impact` | 评估修改某个符号的影响范围 | 影响分析报告 |
+| **MCP** `codegraph_context` | 获取任务相关的代码上下文 | 相关代码片段 |
 | `code-review` | 编码完成后 | 代码审查报告 |
 | `req-doc-gen` | 需要生成需求文档时（按需） | 需求文档 |
 | `awesome-design-md-main` | 需要参考知名网站 UI 设计风格时 | 设计参考 |
@@ -157,6 +164,7 @@ Step 2: OpenSpec 方案设计
     - 编写 `proposal.md`（需求论证）
     - 提交用户确认
     - 编写 `design.md`（技术设计、方案对比）
+    - 【CodeGraph】分析影响范围——目标模块的调用链和依赖关系
     - 提交用户确认
     - 编写 `specs/*/spec.md`（行为规格）
     │
@@ -169,6 +177,7 @@ Step 3: 任务与验收规划
     ▼
 Step 4: 验收与知识库同步
     - 核对 checklist.md
+    - 【CodeGraph】更新索引 → 审查修改范围，检查遗漏引用/调用
     - 【Skill】运行 code-review
     - 修复审查问题
     - 用户确认功能通过
@@ -202,6 +211,7 @@ Step 1: 理解方案
     - 读取 design.md 理解技术设计
     - 读取 specs/*/spec.md 理解行为规格
     - 读取 tasks.md 明确任务
+    - 【CodeGraph】更新索引 → 分析目标模块调用链/依赖图
     │
     ▼
 Step 2: 编码实现
@@ -209,6 +219,7 @@ Step 2: 编码实现
     - 前端：Vue 3 + Composition API + Ant Design Vue
     - 地图：@supermap/vue-iclient-mapboxgl
     - 后端：按需扩展 SpringBoot REST API
+    - 【CodeGraph】编码中快速定位接口实现、查看调用上下游
     │
     ▼
 Step 3: 自测
@@ -218,6 +229,7 @@ Step 3: 自测
     │
     ▼
 Step 4: 交付
+    - 【CodeGraph】更新索引 → 审查修改范围，检查遗漏引用/调用
     - 【Skill】运行 code-review → 修复问题
     - 提交验证结果给 Architect
 ```
@@ -226,3 +238,21 @@ Step 4: 交付
 - 代码遵循 frontend_rules.md / project_rules.md 规范
 - 功能正常通过 checklist.md 验收
 - 代码审查 P0 级别问题数为 0
+
+---
+
+## 7. CodeGraph 索引维护
+
+CodeGraph 的代码索引文件（`.codegraph/*.db`）已加入 `.gitignore`，不会被提交到仓库。
+
+### 7.1 工作机制
+
+- CodeGraph MCP 服务通过 Trae IDE 的 `mcp.json` 配置启动（`codegraph serve --mcp`）
+- 启动后**自动监听文件变更**，索引始终处于最新状态，无需手动 `sync`
+- Agent 通过 MCP 工具（`codegraph_explore`、`codegraph_node`、`codegraph_callers`、`codegraph_impact`）直接查询知识图谱
+
+### 7.2 维护注意事项
+
+- `.codegraph/` 目录保持在项目根目录（`d:\Code\AI-Code\GIS-Practice\.codegraph`），**不要移动或重命名**
+- 索引文件无需手动清理，CodeGraph 会自动增量更新
+- 如遇到索引过期或分析不准，重启 Trae IDE 即可自动刷新 MCP 服务

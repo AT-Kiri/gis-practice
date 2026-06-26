@@ -17,6 +17,11 @@ const routes = [
     name: 'flood-simulation',
     component: () => import('../views/FloodSimulationView.vue'),
   },
+  {
+    path: '/data-dashboard',
+    name: 'data-dashboard',
+    component: () => import('../views/DataDashboardView.vue'),
+  },
 ]
 
 /** 创建路由器实例 */

@@ -170,6 +170,27 @@ export function geoJSONToServerGeo(g) {
 }
 
 /**
+ * 计算两经纬度点之间的近似距离（Haversine 公式）
+ * @param {number[]} p1 - [lng, lat]
+ * @param {number[]} p2 - [lng, lat]
+ * @returns {number} 距离，单位 km
+ */
+export function calcDistance(p1, p2) {
+  if (!p1 || !p2) return 0
+  const R = 6371
+  const dLat = ((p2[1] - p1[1]) * Math.PI) / 180
+  const dLon = ((p2[0] - p1[0]) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((p1[1] * Math.PI) / 180) *
+      Math.cos((p2[1] * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
+
+/**
  * 按 parts 数组将 points 列表拆分为多个环（用于 REGION 几何类型）
  * @param {object[]} points - 所有点的数组
  * @param {number[]} parts - 每个环包含的点数

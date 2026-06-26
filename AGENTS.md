@@ -73,9 +73,9 @@ GIS-Practice/
 │       └── util/           # 工具类
 ├── .trae/                  # Trae IDE 配置
 │   ├── rules/              # AI 编码规范
-│   ├── docs/               # 工作流文档
+│   ├── docs/               # 工作流 + 课程资料
 │   ├── knowledge/          # 项目知识库
 │   └── skills/             # AI 技能
 ├── openspec/               # OpenSpec 设计文档
-└── 资料/                   # 课程资料
+└── .trae/docs/project/     # 课程资料（已移入 .trae）
 ```

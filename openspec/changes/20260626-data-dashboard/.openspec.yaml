@@ -1,0 +1,6 @@
+# OpenSpec 元数据
+schema: v1
+created: 2026-06-26
+change_id: 20260626-data-dashboard
+description: 数据大屏模块 - 灾害态势监控与应急调度
+parent: null
