@@ -42,7 +42,7 @@
       <div class="detail-actions">
         <a-button type="primary" block @click="$emit('buffer-analysis')">
           <template #icon><ApiOutlined /></template>
-          缓冲区分析
+          救援分析
         </a-button>
       </div>
     </template>

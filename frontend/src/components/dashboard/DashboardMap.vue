@@ -179,7 +179,7 @@ function registerInteractions(map) {
 
   // 总览视角参数
   const OVERVIEW_CENTER = [116.4, 39.9]
-  const OVERVIEW_ZOOM = 8
+  const OVERVIEW_ZOOM = 7
   let selectedCounty = null
 
   // click 选中县区：聚焦放大 + 仅显示该圆点

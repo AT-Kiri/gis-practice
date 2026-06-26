@@ -70,7 +70,7 @@
  * 数据大屏 - 主页面容器
  * 半屏面板式布局：左侧独立地图 + 右侧上下两个数据面板
  */
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import mapboxgl from 'mapbox-gl'
 import DashboardMap from '@/components/dashboard/DashboardMap.vue'
 import DisasterDetailPanel from '@/components/dashboard/DisasterDetailPanel.vue'
@@ -126,7 +126,7 @@ function initMap() {
   mapError.value = ''
 
   try {
-    // 天地图矢量底图 + 注记（使用 FloodSimulationView 中已有的 token）
+    // 天地图矢量底图 + 注记，限制可视范围为京津冀区域
     mapboxgl.accessToken = null
 
     const style = {
@@ -174,8 +174,9 @@ function initMap() {
       container: mapContainer.value,
       style,
       center: [116.4, 39.9],
-      zoom: 8,
+      zoom: 7,
       attributionControl: false,
+      maxBounds: [[113.5, 36.0], [120.0, 42.5]],
     })
 
     // 统一处理地图加载完成（修复：内联 style 可能同步触发 load）
@@ -201,6 +202,28 @@ function initMap() {
 // ====== 事件处理 ======
 function onSelectCounty(countyName) {
   selectedCounty.value = countyName
+}
+
+// 取消选中时清除缓冲区分析的地图标记
+watch(selectedCounty, (val) => {
+  if (!val) clearBufferLayers()
+})
+
+function clearBufferLayers() {
+  const map = mapInstance.value
+  if (!map) return
+  // 缓冲区图层
+  const layers = ['buffer-analysis-circle', 'buffer-rescue-points', 'buffer-supply-points']
+  const sources = ['buffer-circle-src', 'buffer-rescue-src', 'buffer-supply-src']
+  // 路径规划图层
+  layers.push('planning-route-line')
+  sources.push('planning-route-src')
+  layers.forEach((id) => {
+    try { if (map.getLayer(id)) map.removeLayer(id) } catch (e) { /* ignore */ }
+  })
+  sources.forEach((id) => {
+    try { if (map.getSource(id)) map.removeSource(id) } catch (e) { /* ignore */ }
+  })
 }
 
 function openBufferAnalysis() {

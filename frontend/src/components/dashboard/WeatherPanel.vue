@@ -13,7 +13,7 @@
       :dataSource="sortedData"
       :columns="columns"
       :pagination="false"
-      :scroll="{ y: 260 }"
+      :scroll="{ y: 252 }"
       size="small"
       class="weather-table"
       @change="onTableChange"
@@ -200,6 +200,35 @@ function weatherIcon(condition) {
 
 .weather-table :deep(.ant-table-tbody > tr:hover > td) {
   background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* 排序箭头 — 增强可见性 */
+.weather-table :deep(.ant-table-column-sorter) {
+  color: rgba(255, 255, 255, 0.35);
+}
+.weather-table :deep(.ant-table-column-sorter-up.active),
+.weather-table :deep(.ant-table-column-sorter-down.active) {
+  color: #1890ff !important;
+}
+.weather-table :deep(.ant-table-column-sorter span:hover) {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* 表格滚动条 — 增强可见性 */
+.weather-table :deep(.ant-table-body-wrapper)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.weather-table :deep(.ant-table-body-wrapper)::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+.weather-table :deep(.ant-table-body-wrapper)::-webkit-scrollbar-thumb {
+  background: rgba(150, 150, 150, 0.7);
+  border-radius: 4px;
+}
+.weather-table :deep(.ant-table-body-wrapper)::-webkit-scrollbar-thumb:hover {
+  background: rgba(150, 150, 150, 0.9);
 }
 
 /* 阈值标红 */

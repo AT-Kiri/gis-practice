@@ -29,14 +29,17 @@
         <!-- 救援人员 -->
         <div class="result-group">
           <div class="result-group-title">
-            <TeamOutlined /> 附近救援人员
+            <TeamOutlined /> 附近救援人员（{{ rescuePoints.length }}）
           </div>
           <div v-if="rescuePoints.length > 0" class="result-list">
             <div v-for="(rp, i) in rescuePoints" :key="i" class="result-item">
               <div class="item-info">
-                <span class="item-name">{{ rp.name }}</span>
-                <span class="item-detail">人员: {{ rp.personnel }} 人</span>
-                <span class="item-detail">{{ rp.equipment }}</span>
+                <span class="item-name">
+                  <span class="item-index">{{ i + 1 }}</span>
+                  {{ rp.name }}
+                </span>
+                <span class="item-detail">👤 {{ rp.personnel }} 人</span>
+                <span class="item-detail">🚒 {{ rp.equipment }}</span>
               </div>
               <a-button
                 type="primary"
@@ -54,12 +57,15 @@
         <!-- 物资点 -->
         <div class="result-group">
           <div class="result-group-title">
-            <UnorderedListOutlined /> 可分配物资
+            <UnorderedListOutlined /> 可分配物资（{{ supplyPoints.length }}）
           </div>
           <div v-if="supplyPoints.length > 0" class="result-list">
             <div v-for="(sp, i) in supplyPoints" :key="i" class="result-item">
               <div class="item-info">
-                <span class="item-name">{{ sp.name }}</span>
+                <span class="item-name">
+                  <span class="item-index">{{ i + 1 }}</span>
+                  {{ sp.name }}
+                </span>
                 <span class="item-detail">{{ sp.supplies }}</span>
               </div>
             </div>
@@ -83,7 +89,7 @@
  * @prop {Object} map - MapboxGL 地图实例
  * @prop {Object} countyData - 选中县区的数据
  */
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, watch } from 'vue'
 import { TeamOutlined, UnorderedListOutlined } from '@ant-design/icons-vue'
 import { calcDistance } from '@/utils/map'
 
@@ -95,7 +101,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:visible', 'route-planning'])
 
-const radius = ref(5)
+const radius = ref(15)  // 默认半径调大到 15km
 const loading = ref(false)
 const rescuePoints = ref([])
 const supplyPoints = ref([])
@@ -104,18 +110,17 @@ const supplyPoints = ref([])
 const CIRCLE_LAYER_ID = 'buffer-analysis-circle'
 const RESCUE_LAYER_ID = 'buffer-rescue-points'
 const SUPPLY_LAYER_ID = 'buffer-supply-points'
+let bufferTooltip = null
 
-// 监听弹窗打开 → 执行分析
+// 监听弹窗打开 → 执行分析（关闭弹窗不清除地图标记，让结果可见）
 watch(
   () => props.visible,
   (open) => {
     if (open && props.countyData) {
-      radius.value = 5
-      runAnalysis(radius.value || 5)
-    } else if (!open) {
-      clearMapLayers()
+      runAnalysis(radius.value)
     }
-  }
+  },
+  { immediate: true }
 )
 
 /**
@@ -235,6 +240,61 @@ function renderBufferOnMap(center, r) {
       },
     })
   }
+
+  // 注册地图标记交互（悬浮 tooltip）
+  registerBufferInteraction(map)
+}
+
+/**
+ * 注册缓冲区标记的鼠标交互
+ */
+function registerBufferInteraction(map) {
+  // 复用 tooltip 元素
+  if (!bufferTooltip) {
+    bufferTooltip = document.createElement('div')
+    bufferTooltip.className = 'buffer-tooltip'
+    bufferTooltip.style.cssText = `
+      display: none; position: fixed; z-index: 40;
+      background: rgba(0,0,0,0.85); color: #fff;
+      padding: 7px 10px; border-radius: 6px;
+      font-size: 12px; line-height: 1.4;
+      pointer-events: none; white-space: nowrap;
+      border: 1px solid rgba(255,255,255,0.1);
+    `
+    document.body.appendChild(bufferTooltip)
+  }
+
+  // 救援点 tooltip
+  map.on('mouseenter', RESCUE_LAYER_ID, (e) => {
+    map.getCanvas().style.cursor = 'pointer'
+    const p = e.features[0].properties
+    bufferTooltip.innerHTML = `🚑 ${p.name} | 👤 ${p.personnel} 人`
+    bufferTooltip.style.display = 'block'
+  })
+  map.on('mousemove', RESCUE_LAYER_ID, (e) => {
+    bufferTooltip.style.left = `${e.originalEvent.clientX + 12}px`
+    bufferTooltip.style.top = `${e.originalEvent.clientY - 8}px`
+  })
+  map.on('mouseleave', RESCUE_LAYER_ID, () => {
+    map.getCanvas().style.cursor = ''
+    bufferTooltip.style.display = 'none'
+  })
+
+  // 物资点 tooltip
+  map.on('mouseenter', SUPPLY_LAYER_ID, (e) => {
+    map.getCanvas().style.cursor = 'pointer'
+    const p = e.features[0].properties
+    bufferTooltip.innerHTML = `📦 ${p.name}`
+    bufferTooltip.style.display = 'block'
+  })
+  map.on('mousemove', SUPPLY_LAYER_ID, (e) => {
+    bufferTooltip.style.left = `${e.originalEvent.clientX + 12}px`
+    bufferTooltip.style.top = `${e.originalEvent.clientY - 8}px`
+  })
+  map.on('mouseleave', SUPPLY_LAYER_ID, () => {
+    map.getCanvas().style.cursor = ''
+    bufferTooltip.style.display = 'none'
+  })
 }
 
 /**
@@ -265,7 +325,7 @@ function onRoutePlan(point) {
   emit('route-planning', point)
 }
 
-onUnmounted(() => clearMapLayers())
+
 </script>
 
 <style scoped>
@@ -328,6 +388,23 @@ onUnmounted(() => clearMapLayers())
   color: rgba(255, 255, 255, 0.85);
   font-size: 13px;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.item-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(24, 144, 255, 0.2);
+  color: #1890ff;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
 .item-detail {
@@ -347,5 +424,28 @@ onUnmounted(() => clearMapLayers())
   justify-content: center;
   align-items: center;
   min-height: 150px;
+}
+</style>
+
+<style>
+/* 弹窗深色背景 - 覆盖 Ant Design 默认白色背景 */
+.buffer-modal .ant-modal-content {
+  background: #141414;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.buffer-modal .ant-modal-header {
+  background: #141414;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.buffer-modal .ant-modal-title {
+  color: rgba(255, 255, 255, 0.85);
+}
+.buffer-modal .ant-modal-close {
+  color: rgba(255, 255, 255, 0.45);
+}
+/* 按钮区 */
+.buffer-modal .ant-modal-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: #141414;
 }
 </style>

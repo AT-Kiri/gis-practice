@@ -123,7 +123,7 @@ function generateRescuePoints(county, level) {
   for (let i = 0; i < count; i++) {
     points.push({
       name: `${county}${['消防站', '应急救援中心', '武警驻地', '医疗救援站', '民兵训练基地'][i]}`,
-      coords: [coords[0] + randFloat(-0.08, 0.08, 4), coords[1] + randFloat(-0.08, 0.08, 4)],
+      coords: [coords[0] + randFloat(-0.02, 0.02, 4), coords[1] + randFloat(-0.02, 0.02, 4)],
       personnel: rand(10, 50 + level * 30),
       equipment: pick(['消防车3辆', '救护车2辆', '冲锋舟4艘', '挖掘机2台', '救援车5辆']),
     })
@@ -148,7 +148,7 @@ function generateSupplyPoints(county, level) {
   for (let i = 0; i < count; i++) {
     points.push({
       name: `${county}${['物资储备库', '应急物资站', '救灾物资点'][i]}`,
-      coords: [coords[0] + randFloat(-0.05, 0.05, 4), coords[1] + randFloat(-0.05, 0.05, 4)],
+      coords: [coords[0] + randFloat(-0.02, 0.02, 4), coords[1] + randFloat(-0.02, 0.02, 4)],
       supplies: pick(supplyTypes),
     })
   }
