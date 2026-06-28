@@ -35,3 +35,7 @@ target/
 
 # Trae 同步状态缓存
 .trae/sync-code-trace/
+
+# 队友代码存档(仅参考,不纳入版本控制)
+.trae/docs/project/gis-practice.zip
+.trae/docs/project/gis-practice/
