@@ -135,7 +135,7 @@
 - [x] 错误处理完善，不把异常直接抛给前端
 - [x] LLM 调用单点封装，隔离底层 API 差异
 - [x] Tool 输出统一格式，符合 ToolResult 契约
-- [ ] 子图输出契约明确，Coordinator 按固定字段读取
+- [x] 子图输出契约明确，Coordinator 按固定字段读取（SubAgentResult Pydantic 模型 + execute_sub_agent 事件流契约）
 - [x] 配置从环境变量读取，不硬编码密钥
 - [x] requirements.txt 完整
 

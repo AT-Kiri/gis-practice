@@ -11,6 +11,7 @@
 /**
  * 主页视图
  * 集成地图组件和 Agent 聊天面板，处理 Agent SSE 事件流
+ * P1：默认走多智能体 Coordinator（/chat/multi），保留单 Agent 作为 fallback
  */
 import SmMapViewer from '../components/SmMapViewer.vue'
 import AgentChatPanel from '../components/AgentChatPanel.vue'
@@ -32,6 +33,9 @@ let abortController = null
  * 创建 AI 消息占位，建立 SSE 连接，处理事件流
  */
 function handleSend(text) {
+  // 重置上一轮工作流状态
+  agentStore.resetWorkflow()
+
   // 添加用户消息
   agentStore.addMessage({ role: 'user', content: text })
 
@@ -44,18 +48,43 @@ function handleSend(text) {
 
   agentStore.setLoading(true)
 
-  // 建立 SSE 连接
+  // 建立 SSE 连接（默认走多智能体模式）
   abortController = sendAgentMessage(text, {
     onAgentStart: () => {
       // Agent 开始执行
     },
 
+    // ===== P1 多智能体事件 =====
+    onIntentClassified: (data) => {
+      agentStore.setIntent(data.intent, data.entities)
+    },
+
+    onPlanCreated: (data) => {
+      agentStore.setPlan(data.tasks, data.summary)
+    },
+
+    onStepStart: (data) => {
+      agentStore.startStep(data.step, data.total, data.agent_type, data.description)
+    },
+
+    onStepDone: (data) => {
+      agentStore.finishStep(data.step, data.success, data.summary)
+    },
+
+    // ===== 工具事件（P0/P1 通用） =====
     onToolStart: (data) => {
-      // 工具开始调用，添加工具卡片
+      // 工具开始调用，添加工具卡片（携带 step/agentType 用于分组）
+      let agentType = ''
+      if (data.step != null) {
+        const stepInfo = agentStore.steps.find(s => s.step === data.step)
+        if (stepInfo) agentType = stepInfo.agentType
+      }
       agentStore.addToolCall(aiMsgId, {
         toolName: data.tool_name,
         status: 'loading',
         input: data.input,
+        step: data.step ?? null,
+        agentType,
       })
     },
 
@@ -64,10 +93,13 @@ function handleSend(text) {
       const msg = agentStore.messages.find(m => m.id === aiMsgId)
       if (!msg) return
 
-      // 找到最后一个 loading 状态的同名工具
+      // 找到最后一个 loading 状态的同名工具（同 step 优先）
       let lastIndex = -1
       for (let i = msg.toolCalls.length - 1; i >= 0; i--) {
-        if (msg.toolCalls[i].toolName === data.tool_name && msg.toolCalls[i].status === 'loading') {
+        const tc = msg.toolCalls[i]
+        if (tc.toolName === data.tool_name && tc.status === 'loading') {
+          // 若事件携带 step，则需 step 匹配；否则取最近一个
+          if (data.step != null && tc.step != null && tc.step !== data.step) continue
           lastIndex = i
           break
         }
@@ -118,6 +150,8 @@ function handleSend(text) {
       agentStore.setLoading(false)
       abortController = null
     },
+  }, {
+    useMulti: true, // P1 默认走多智能体
   })
 }
 
@@ -142,6 +176,7 @@ function handleStop() {
  */
 function handleClear() {
   clearAllAgentResults()
+  agentStore.resetWorkflow()
 }
 </script>
 

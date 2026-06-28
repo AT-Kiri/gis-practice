@@ -10,6 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.services.llm_service import LLMService
 from app.services.session_store import get_history, add_exchange
 from app.tools.gis_tools import GIS_TOOLS
+from app.tools.rag_tools import RAG_TOOLS
 
 
 # ==================== 系统提示词 ====================
@@ -29,6 +30,7 @@ SYSTEM_PROMPT = """你是京津冀城市综合防灾应急管理系统的 AI 应
 - shortest_path: 最短路径分析（长春路网），规划多点间最短路径
 - service_area: 服务区分析（长春路网），分析某点可达范围
 - fly_to_location: 地图定位，将地图移动到指定地点
+- rag_retrieval: 知识检索，从应急救援知识库中检索救援方案、处置流程、应急预案等内容。当用户询问救援知识、应急流程、预案内容时使用
 
 使用规则：
 1. 用户询问"XXX在哪"时，使用 feature_search 或 fly_to_location
@@ -63,7 +65,7 @@ def build_agent():
     llm = LLMService.get_chat_model(temperature=0.3)
     agent = create_react_agent(
         model=llm,
-        tools=GIS_TOOLS,
+        tools=GIS_TOOLS + RAG_TOOLS,
         state_modifier=SYSTEM_PROMPT,
     )
     return agent

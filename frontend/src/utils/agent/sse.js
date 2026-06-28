@@ -1,13 +1,23 @@
 /**
  * Agent SSE 连接管理
  * 负责与后端 Agent API 建立 SSE 连接，解析事件流，回调分发
+ *
+ * 支持两种模式：
+ * - P0 单 Agent：POST /agent-api/agent/chat
+ * - P1 多智能体：POST /agent-api/agent/chat/multi（默认）
  */
 
 /**
  * 发送消息到 Agent 后端，通过 SSE 接收流式响应
  * @param {string} message - 用户消息文本
  * @param {Object} callbacks - 事件回调
+ * @param {boolean} [options.useMulti=true] - 是否使用多智能体模式
+ * @param {string} [options.sessionId='default'] - 会话 ID
  * @param {Function} [callbacks.onAgentStart] - Agent 开始执行
+ * @param {Function} [callbacks.onIntentClassified] - 意图分类完成 (data) => void  [multi only]
+ * @param {Function} [callbacks.onPlanCreated] - 任务规划完成 (data) => void  [multi only]
+ * @param {Function} [callbacks.onStepStart] - 某步开始 (data) => void  [multi only]
+ * @param {Function} [callbacks.onStepDone] - 某步完成 (data) => void  [multi only]
  * @param {Function} [callbacks.onToolStart] - 工具开始调用 (data) => void
  * @param {Function} [callbacks.onToolResult] - 工具执行完成 (data) => void
  * @param {Function} [callbacks.onText] - 流式文本 token (content) => void
@@ -15,13 +25,16 @@
  * @param {Function} [callbacks.onError] - 出错 (message) => void
  * @returns {AbortController} 用于中止请求
  */
-export function sendAgentMessage(message, callbacks = {}) {
+export function sendAgentMessage(message, callbacks = {}, options = {}) {
   const controller = new AbortController()
+  const useMulti = options.useMulti !== false // 默认 true
+  const sessionId = options.sessionId || 'default'
+  const url = useMulti ? '/agent-api/agent/chat/multi' : '/agent-api/agent/chat'
 
-  fetch('/agent-api/agent/chat', {
+  fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, session_id: 'default' }),
+    body: JSON.stringify({ message, session_id: sessionId }),
     signal: controller.signal,
   })
     .then(async (response) => {
@@ -87,6 +100,20 @@ function handleEvent(event, callbacks) {
     case 'agent_start':
       callbacks.onAgentStart?.(data)
       break
+    // ===== P1 多智能体新增事件 =====
+    case 'intent_classified':
+      callbacks.onIntentClassified?.(data)
+      break
+    case 'plan_created':
+      callbacks.onPlanCreated?.(data)
+      break
+    case 'step_start':
+      callbacks.onStepStart?.(data)
+      break
+    case 'step_done':
+      callbacks.onStepDone?.(data)
+      break
+    // ===== 通用事件 =====
     case 'tool_start':
       callbacks.onToolStart?.(data)
       break

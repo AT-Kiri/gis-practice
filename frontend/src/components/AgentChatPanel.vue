@@ -41,6 +41,26 @@
           </div>
         </header>
 
+        <!-- P1 多智能体工作流进度条 -->
+        <div v-if="showWorkflow" class="workflow-bar">
+          <div class="wf-header">
+            <span class="wf-intent">{{ intentLabel }}</span>
+            <span class="wf-progress">第 {{ agentStore.currentStep || 0 }} / {{ agentStore.totalSteps || 0 }} 步</span>
+          </div>
+          <div class="wf-steps">
+            <span
+              v-for="s in agentStore.steps"
+              :key="s.step"
+              class="wf-step"
+              :class="[s.status, `agent-${s.agentType || 'default'}`]"
+              :title="`步骤${s.step}：${s.description}`"
+            >
+              <span class="wf-step-num">{{ s.step }}</span>
+              <span class="wf-step-name">{{ agentLabel(s.agentType) }}</span>
+            </span>
+          </div>
+        </div>
+
         <!-- 消息列表 -->
         <div ref="scrollRef" class="msg-list">
           <!-- 欢迎状态 -->
@@ -132,7 +152,7 @@ import {
   SendOutlined,
   PauseOutlined,
 } from '@ant-design/icons-vue'
-import { useAgentStore } from '../stores/agent'
+import { useAgentStore, AGENT_TYPE_LABEL, INTENT_LABEL } from '../stores/agent'
 import ChatMessage from './agent/ChatMessage.vue'
 
 const emit = defineEmits(['send', 'stop', 'clear'])
@@ -151,12 +171,28 @@ const quickActions = [
   '朝阳区在哪？',
   '做1km缓冲区分析',
   '查找附近医院',
+  '朝阳区地震，评估灾情并规划救援',
 ]
 
 /** 是否存在正在流式输出的消息（用于隐藏 thinking 占位） */
 const hasStreaming = computed(() =>
   agentStore.messages.some(m => m.isStreaming),
 )
+
+/** 是否显示多智能体工作流进度条：加载中且已规划出步骤 */
+const showWorkflow = computed(() =>
+  agentStore.isLoading && agentStore.totalSteps > 0,
+)
+
+/** 当前意图中文名 */
+const intentLabel = computed(() =>
+  INTENT_LABEL[agentStore.currentIntent] || agentStore.currentIntent || '处理中',
+)
+
+/** 子 Agent 类型中文名 */
+function agentLabel(type) {
+  return AGENT_TYPE_LABEL[type] || type || ''
+}
 
 /** 发送消息 */
 function handleSend(text) {
@@ -344,6 +380,79 @@ watch(
   overflow-y: auto;
   padding: 14px;
   scroll-behavior: smooth;
+}
+
+/* P1 多智能体工作流进度条 */
+.workflow-bar {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(245, 158, 11, 0.02));
+  border-bottom: 1px solid var(--color-border);
+}
+
+.wf-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.wf-intent {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-accent-amber);
+}
+
+.wf-progress {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.wf-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.wf-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--color-text-muted);
+  transition: all var(--transition-fast);
+}
+
+.wf-step-num {
+  font-weight: 700;
+}
+
+.wf-step.pending {
+  opacity: 0.5;
+}
+
+.wf-step.running {
+  background: var(--color-primary);
+  color: #fff;
+  animation: wf-pulse 1.4s ease-in-out infinite;
+}
+
+.wf-step.done {
+  background: var(--color-accent-green);
+  color: #fff;
+}
+
+.wf-step.error {
+  background: var(--color-accent-red);
+  color: #fff;
+}
+
+@keyframes wf-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 /* 欢迎状态 */

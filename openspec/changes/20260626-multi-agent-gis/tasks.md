@@ -165,67 +165,69 @@
 ### Task 9: RAG 知识库服务
 - **优先级**: P1
 - **依赖**: Task 1
-- **状态**: pending
+- **状态**: done
 - **描述**: FAISS 向量库 + 文档索引 + 检索工具
 - **子任务**:
-  - [ ] RAGService 封装（FAISS + Embedding）
-  - [ ] 文档分块与索引功能
-  - [ ] rag_retrieval Tool
-  - [ ] 初始知识库文档（5 篇应急相关 Markdown）
-  - [ ] 启动时自动索引
-  - [ ] POST /api/rag/upload 接口
-  - [ ] GET /api/rag/search 调试接口
+  - [x] RAGService 封装（FAISS + Embedding）
+  - [x] 文档分块与索引功能
+  - [x] rag_retrieval Tool
+  - [x] 初始知识库文档（5 篇应急相关 Markdown）
+  - [x] 启动时自动索引
+  - [x] POST /api/rag/upload 接口
+  - [x] GET /api/rag/search 调试接口
 
 ### Task 10: 多智能体架构 - LangGraph StateGraph
 - **优先级**: P1
 - **依赖**: Task 3
-- **状态**: pending
+- **状态**: in_progress（编码完成，待用户测试）
 - **描述**: 从单 Agent 升级为 Coordinator + 子 Agent 的 StateGraph
+- **实现说明**: 未使用 LangGraph StateGraph 编译，改用 async function 顺序调度实现「代码级路由」（spec 场景 3 要求），等价于 StateGraph 但流式输出更自然、调试更方便
 - **子任务**:
-  - [ ] AgentState 类型定义（TypedDict）
-  - [ ] 意图分类节点（intent_classify）+ JSON Schema 校验 + 重试
-  - [ ] 任务规划节点（task_planner）
-  - [ ] 代码级路由逻辑（route_agent）
-  - [ ] 结果汇总节点（summarize）
-  - [ ] 步数上限保护（max 10 步）
-  - [ ] 状态图编译与测试
+  - [x] AgentState 类型定义（TypedDict，state.py）
+  - [x] 意图分类节点（intent_classify）+ JSON Schema 校验 + 重试（nodes/intent.py）
+  - [x] 任务规划节点（task_planner，nodes/planner.py）
+  - [x] 代码级路由逻辑（route_agent，coordinator.py 主循环）
+  - [x] 结果汇总节点（summarize，nodes/summarize.py）
+  - [x] 步数上限保护（MAX_STEPS=5，coordinator.py）
+  - [x] 状态图编译与测试（用 async function 等价实现，已通过 import 健康检查）
 
 ### Task 11: 子 Agent 子图实现
 - **优先级**: P1
 - **依赖**: Task 10
-- **状态**: pending
+- **状态**: in_progress（编码完成，待用户测试）
 - **描述**: 四个专业子 Agent 的 LangGraph 子图
+- **实现说明**: 用 create_react_agent 创建 4 个独立子 Agent，由 Coordinator 顺序调度；子 Agent 输出契约通过 SubAgentResult Pydantic 模型定义
 - **子任务**:
-  - [ ] SearchAgent 子图（feature_search + spatial_query + fly_to）
-  - [ ] AnalysisAgent 子图（buffer_analysis + overlay_analysis）
-  - [ ] RouteAgent 子图（shortest_path + service_area）
-  - [ ] KnowledgeAgent 子图（rag_retrieval + 回答生成）
-  - [ ] 每个子图的输出契约验证
-  - [ ] 子图集成到 Coordinator 主图
+  - [x] SearchAgent 子图（feature_search + spatial_query + fly_to）
+  - [x] AnalysisAgent 子图（buffer_analysis + overlay_analysis）
+  - [x] RouteAgent 子图（shortest_path + service_area）
+  - [x] KnowledgeAgent 子图（rag_retrieval + 回答生成）
+  - [x] 每个子图的输出契约验证（SubAgentResult 模型 + execute_sub_agent 事件流契约）
+  - [x] 子图集成到 Coordinator 主图（coordinator.py 调用 execute_sub_agent）
 
 ### Task 12: 分步可视化增强
 - **优先级**: P1
 - **依赖**: Task 7, Task 11
-- **状态**: pending
+- **状态**: in_progress（编码完成，待用户测试）
 - **描述**: 多步任务的分步地图标绘与进度展示
 - **子任务**:
-  - [ ] 每步 tool_result 实时推送
-  - [ ] 前端进度指示（第 X / 共 Y 步）
-  - [ ] 不同工具结果图层叠加（透明度区分）
-  - [ ] 步骤说明文字同步显示
-  - [ ] 应急场景演示测试："朝阳区地震，评估灾情并规划救援"
+  - [x] 每步 tool_result 实时推送（Coordinator SSE 流转发）
+  - [x] 前端进度指示（第 X / 共 Y 步，AgentChatPanel.vue 顶部 workflow-bar）
+  - [x] 不同工具结果图层叠加（橙色系样式不变，按 step 分组卡片显示）
+  - [x] 步骤说明文字同步显示（step_start 事件携带 description）
+  - [ ] 应急场景演示测试："朝阳区地震，评估灾情并规划救援"（待用户测试）
 
 ### Task 13: 前端面板完善与体验优化
 - **优先级**: P1
 - **依赖**: Task 12
-- **状态**: pending
+- **状态**: in_progress（编码完成，待用户测试）
 - **描述**: 完善对话面板细节体验
 - **子任务**:
-  - [ ] 消息气泡中的代码块/表格渲染（Markdown 支持）
-  - [ ] 工具卡片点击展开详情
-  - [ ] 停止生成按钮
-  - [ ] 错误提示样式优化
-  - [ ] 响应式布局适配
+  - [x] 消息气泡中的代码块/表格渲染（Markdown 支持，引入 markdown-it，utils/agent/markdown.js）
+  - [x] 工具卡片点击展开详情（P0 已实现）
+  - [x] 停止生成按钮（P0 已实现）
+  - [ ] 错误提示样式优化（保留 P0 实现，待用户评估）
+  - [ ] 响应式布局适配（保留 P0 实现，待用户评估）
 
 ---
 

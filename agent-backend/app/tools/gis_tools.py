@@ -41,13 +41,16 @@ def _normalize_geometry(g):
 @tool
 async def feature_search(keyword: str, level: str = "all", region: str = "auto") -> dict:
     """
-    专题检索：按关键字搜索地理要素（县级市、乡镇、道路、河流等，或长春市公园/医院/学校等POI）。
+    专题检索：按关键字搜索地理要素（京津冀：县级市/乡镇/道路/河流等；长春：公园/医院/学校等POI）。
     当用户询问某个地点在哪、有什么时使用此工具。
 
     Args:
         keyword: 搜索关键字，如"朝阳区"、"长江"、"高速公路"、"南湖公园"
         level: 搜索层级，可选值：all(全部)、province(省级)、county(县级)、town(乡镇)，仅对京津冀有效
-        region: 搜索区域，可选值：auto(自动，先查京津冀，无结果则查长春)、jingjin(仅京津冀)、changchun(仅长春)
+        region: 搜索区域。默认 auto（先查京津冀，无结果才查长春）。
+            普通地点查询用 jingjin（仅京津冀）；
+            路径规划/服务区分析的起终点查询用 changchun（仅长春，因路网数据源是长春）。
+            不要在普通查询中查长春。
     """
     kw = keyword.strip()
     if not kw:
@@ -171,11 +174,22 @@ async def feature_search(keyword: str, level: str = "all", region: str = "auto")
         if names:
             summary += f"，包括：{'、'.join(names)}"
 
+        # data.features 只返回摘要，避免 ReAct 循环 token 暴涨
+        # 完整 geometry 保留在 geojson 字段供前端渲染，不进 LLM 上下文
+        features_summary = [
+            {
+                "displayName": f["displayName"],
+                "dataset": f["datasetName"],
+                "region": f.get("region", "jingjin"),
+            }
+            for f in all_features[:20]
+        ]
+
         return ToolResult(
             success=True,
             data={
                 "total": len(all_features),
-                "features": all_features[:20],
+                "features": features_summary,
                 "datasetCounts": dataset_counts,
             },
             geojson={"type": "FeatureCollection", "features": geojson_features},
@@ -272,11 +286,20 @@ async def spatial_query(geometry: str, mode: str = "circle", feature_type: str =
             name = f["datasetName"]
             dataset_counts[name] = dataset_counts.get(name, 0) + 1
 
+        # data.features 只返回摘要，避免 ReAct 循环 token 暴涨
+        features_summary = [
+            {
+                "displayName": f["displayName"],
+                "dataset": f["datasetName"],
+            }
+            for f in all_features[:20]
+        ]
+
         return ToolResult(
             success=True,
             data={
                 "total": len(all_features),
-                "features": all_features[:20],
+                "features": features_summary,
                 "datasetCounts": dataset_counts,
             },
             geojson={"type": "FeatureCollection", "features": geojson_features},
