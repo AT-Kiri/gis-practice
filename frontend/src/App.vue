@@ -20,6 +20,15 @@
           <a-button
             type="text"
             class="nav-btn"
+            :class="{ 'nav-btn--active': $route.name === 'new-big-screen' }"
+            @click="$router.push('/new-big-screen')"
+          >
+            <MonitorOutlined />
+            <span>数字大屏</span>
+          </a-button>
+          <a-button
+            type="text"
+            class="nav-btn"
             :class="{ 'nav-btn--active': $route.name === 'home' }"
             @click="$router.push('/')"
           >
@@ -42,7 +51,7 @@
             @click="$router.push('/data-dashboard')"
           >
             <DashboardOutlined />
-            <span>数据大屏</span>
+            <span>监测-预警-联动</span>
           </a-button>
           <a-divider type="vertical" style="border-color: rgba(255,255,255,0.15); height: 20px;" />
           <div class="header-status">
@@ -60,7 +69,7 @@
 </template>
 
 <script setup>
-import { SafetyCertificateOutlined, AppstoreOutlined, ThunderboltOutlined, DashboardOutlined } from '@ant-design/icons-vue'
+import { SafetyCertificateOutlined, AppstoreOutlined, ThunderboltOutlined, DashboardOutlined, MonitorOutlined } from '@ant-design/icons-vue'
 </script>
 
 <style scoped>

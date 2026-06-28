@@ -22,6 +22,11 @@ const routes = [
     name: 'data-dashboard',
     component: () => import('../views/DataDashboardView.vue'),
   },
+  {
+    path: '/new-big-screen',
+    name: 'new-big-screen',
+    component: () => import('../views/NewBigScreenView.vue'),
+  },
 ]
 
 /** 创建路由器实例 */
