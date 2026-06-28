@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境
+venv/
+env/
+.venv/
+
+# 环境变量（不提交密钥）
+.env
+
+# 向量库文件（运行时生成）
+vector_store/*.faiss
+vector_store/*.pkl
+
+# IDE
+.idea/
+.vscode/
+*.swp
