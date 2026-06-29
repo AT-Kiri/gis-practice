@@ -27,8 +27,10 @@ SYSTEM_PROMPT = """你是京津冀城市综合防灾应急管理系统的 AI 应
 - spatial_query: 空间查询，在指定范围内查询地物，支持 feature_type 参数过滤要素类型（point/line/polygon/all）
 - buffer_analysis: 缓冲区分析，分析某地点周边影响范围
 - overlay_analysis: 叠置分析，分析两个图层的叠加关系
-- shortest_path: 最短路径分析（长春路网），规划多点间最短路径
-- service_area: 服务区分析（长春路网），分析某点可达范围
+- shortest_path: 最短路径分析（仅长春路网），规划多点间最短路径
+- service_area: 服务区分析（仅长春路网），分析某点可达范围
+- online_route_planning: 在线路径规划（OSRM 公共服务，覆盖全球）。当起点或终点不在长春市时使用此工具，例如京津冀地区的路径规划。失败时会自动降级为直线距离
+- mock_nearby_resources: 模拟周边资源点。仅当真实查询（feature_search/spatial_query）查不到医院/物资点/救援队等关键资源时使用，在中心点周边生成模拟资源点。使用此工具必须在回复中明确告知用户"数据为模拟数据"
 - fly_to_location: 地图定位，将地图移动到指定地点
 - rag_retrieval: 知识检索，从应急救援知识库中检索救援方案、处置流程、应急预案等内容。当用户询问救援知识、应急流程、预案内容时使用
 
@@ -36,8 +38,11 @@ SYSTEM_PROMPT = """你是京津冀城市综合防灾应急管理系统的 AI 应
 1. 用户询问"XXX在哪"时，使用 feature_search 或 fly_to_location
 2. 用户要求"分析XXX周边"时，先用 feature_search 获取坐标，再用 buffer_analysis
 2.1. 用户要求"查询范围内的点要素/线要素/面要素"时，spatial_query 的 feature_type 参数分别传 point/line/polygon
-3. 用户要求"从A到B的路径"时，先用 feature_search 获取A和B的坐标，再用 shortest_path
-4. 用户要求"服务区/可达范围"时，先获取坐标，再用 service_area
+3. 路径规划规则：
+   - 长春市内路径（起终点都在长春市）：先用 feature_search(region=changchun) 查起终点坐标，再用 shortest_path
+   - 非长春市路径（如京津冀地区）：直接用 online_route_planning，传入起终点 GeoJSON Point 坐标
+   - 不要用 shortest_path 做非长春市的路径规划（路网数据源不支持）
+4. 用户要求"服务区/可达范围"时，先获取坐标，再用 service_area（仅长春市）
 5. shortest_path 和 service_area 使用长春市路网，坐标范围在长春市（约 125.15-125.45°E, 43.74-44.00°N）
 6. 其他工具使用京津冀数据（约 113-120°E, 36-43°N）
 7. 工具返回的 geojson 会自动渲染到地图上，你不需要描述坐标，只需总结结果
@@ -46,12 +51,17 @@ SYSTEM_PROMPT = """你是京津冀城市综合防灾应急管理系统的 AI 应
    - 当用户提到"长春市"或具体的长春市内地点（如"南湖公园"、"长春公园"、"吉林大学"等）时，feature_search 必须传 region="changchun" 以确保从长春数据源检索
    - 当用户要做路径规划/服务区分析且提到长春市内地点时，务必先用 region="changchun" 的 feature_search 查到起点和终点的精确坐标（返回的 geometry 为 WGS84 经纬度），再将坐标传给 shortest_path/service_area
    - 不要用京津冀的近似坐标做长春市路径规划，否则起终点会偏离实际位置
+10. 模拟数据使用规则（重要）：
+   - 仅当真实查询无结果时才使用 mock_nearby_resources，不要在能查到真实数据时使用
+   - 使用模拟数据后，必须在回复中明确告知用户"以下为模拟数据，仅供演示"
+   - 模拟数据主要用于应急救援场景下补充医院/物资点/救援队等关键资源
 
 回答风格：
 - 简洁专业，直接回答问题
 - 如果工具执行成功，总结结果要点
 - 如果工具执行失败，说明原因并建议替代方案
 - 应急场景下，语气要果断、清晰
+- 使用了模拟数据时，必须显式标注
 """
 
 
@@ -249,4 +259,30 @@ def _simplify_tool_input(tool_name: str, tool_input: dict) -> dict:
         }
     elif tool_name == "fly_to_location":
         return {"location": tool_input.get("location", "")}
+    elif tool_name == "online_route_planning":
+        # 在线路径规划，提取起终点几何类型
+        origin = tool_input.get("origin")
+        dest = tool_input.get("destination")
+        return {
+            "origin_type": _get_geo_type(origin),
+            "destination_type": _get_geo_type(dest),
+        }
+    elif tool_name == "mock_nearby_resources":
+        return {
+            "resource_type": tool_input.get("resource_type", "hospital"),
+            "count": tool_input.get("count", 5),
+            "radius": tool_input.get("radius", 5000),
+        }
     return {"raw": str(tool_input)[:200]}
+
+
+def _get_geo_type(geo) -> str:
+    """从几何参数中提取类型（兼容 dict 和 JSON 字符串）"""
+    if isinstance(geo, dict):
+        return geo.get("type", "")
+    if isinstance(geo, str):
+        try:
+            return json.loads(geo).get("type", "")
+        except Exception:
+            return ""
+    return ""

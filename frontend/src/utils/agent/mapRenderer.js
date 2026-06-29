@@ -18,6 +18,18 @@ const AGENT_COLORS = {
   lineWidth: 3,
 }
 
+/** 模拟数据样式（_mock=true 的要素使用紫灰色 + 虚线区分） */
+const MOCK_COLORS = {
+  point: '#94a3b8',     // slate-400
+  line: '#a78bfa',      // violet-400
+  fill: '#cbd5e1',      // slate-300
+  fillOpacity: 0.10,
+  lineOpacity: 0.75,
+  pointRadius: 6,
+  lineWidth: 2,
+  lineDashArray: [2, 2],
+}
+
 /** 已添加的 Agent 结果图层 ID 列表 */
 const addedLayerIds = []
 /** 已添加的 Agent 结果 Source ID 列表 */
@@ -39,7 +51,12 @@ function showFeaturePopup(lngLat, props) {
   if (popup) popup.remove()
 
   let html = '<div style="max-height:280px;overflow-y:auto;font-size:12px;">'
-  html += `<div style="font-weight:bold;margin-bottom:6px;">${props._displayName || '要素'}</div>`
+  // 模拟数据标题加 [模拟] 标记，使用紫灰色区分
+  const isMock = props._mock === true
+  const titlePrefix = isMock
+    ? '<span style="color:#a78bfa;font-size:11px;border:1px solid #a78bfa;padding:0 4px;border-radius:3px;margin-right:4px;">模拟</span>'
+    : ''
+  html += `<div style="font-weight:bold;margin-bottom:6px;">${titlePrefix}${props._displayName || '要素'}</div>`
   html += '<table style="width:100%;border-collapse:collapse;">'
   for (const [k, v] of Object.entries(props)) {
     if (k.startsWith('_')) continue
@@ -117,8 +134,9 @@ export function renderAgentResult(toolName, geojson, options = {}) {
       source: sourceId,
       filter: ['==', '$type', 'Polygon'],
       paint: {
-        'fill-color': AGENT_COLORS.fill,
-        'fill-opacity': AGENT_COLORS.fillOpacity,
+        // _mock=true 用紫灰色，否则用主题色
+        'fill-color': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.fill, AGENT_COLORS.fill],
+        'fill-opacity': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.fillOpacity, AGENT_COLORS.fillOpacity],
       },
     })
     addedLayerIds.push(fillId)
@@ -131,7 +149,7 @@ export function renderAgentResult(toolName, geojson, options = {}) {
       source: sourceId,
       filter: ['==', '$type', 'Polygon'],
       paint: {
-        'line-color': AGENT_COLORS.line,
+        'line-color': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.line, AGENT_COLORS.line],
         'line-width': AGENT_COLORS.lineWidth,
         'line-opacity': AGENT_COLORS.lineOpacity,
       },
@@ -148,7 +166,12 @@ export function renderAgentResult(toolName, geojson, options = {}) {
       source: sourceId,
       filter: ['==', '$type', 'LineString'],
       paint: {
-        'line-color': isPath ? '#ef4444' : AGENT_COLORS.line,
+        // isPath(最短路径)用红色，_mock 用紫灰色，其他用主题色
+        'line-color': [
+          'case',
+          ['==', ['get', '_mock'], true], MOCK_COLORS.line,
+          isPath ? '#ef4444' : AGENT_COLORS.line,
+        ],
         'line-width': isPath ? 4 : AGENT_COLORS.lineWidth,
         'line-opacity': AGENT_COLORS.lineOpacity,
       },
@@ -167,8 +190,8 @@ export function renderAgentResult(toolName, geojson, options = {}) {
       filter: ['==', '$type', 'Point'],
       paint: {
         'circle-radius': AGENT_COLORS.pointRadius,
-        'circle-color': AGENT_COLORS.point,
-        'circle-stroke-color': '#fff',
+        'circle-color': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.point, AGENT_COLORS.point],
+        'circle-stroke-color': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.line, '#fff'],
         'circle-stroke-width': 2,
         'circle-opacity': 0.9,
       },

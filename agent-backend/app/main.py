@@ -42,3 +42,11 @@ app.include_router(rag.router, prefix="/api/rag", tags=["rag"])
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "gis-agent-backend"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    # 启动命令：python -m app.main
+    # 工作目录须为 agent-backend/
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8001, reload=True)

@@ -5,6 +5,9 @@ GIS 工具层
 """
 import asyncio
 import json
+import math
+import random
+import httpx
 from langchain_core.tools import tool
 from app.schemas.tool_result import ToolResult
 from app.services.iserver_client import (
@@ -656,6 +659,160 @@ async def fly_to_location(location: str) -> dict:
         return ToolResult(success=False, error=f"定位失败: {e}").to_dict()
 
 
+@tool
+async def online_route_planning(origin: str, destination: str) -> dict:
+    """
+    在线路径规划（OSRM）：计算两点间行车路径。
+    用于京津冀等非长春地区的救援路线规划（shortest_path 仅支持长春路网）。
+    当需要在京津冀范围规划救援路线时使用此工具。
+
+    Args:
+        origin: 起点坐标 JSON 字符串，如 '{"lng":116.28,"lat":39.85}'
+        destination: 终点坐标 JSON 字符串，如 '{"lng":116.40,"lat":39.90}'
+    """
+    origin = _normalize_geometry(origin)
+    destination = _normalize_geometry(destination)
+    if not origin or "lng" not in origin or "lat" not in origin:
+        return ToolResult(success=False, error="起点坐标无效").to_dict()
+    if not destination or "lng" not in destination or "lat" not in destination:
+        return ToolResult(success=False, error="终点坐标无效").to_dict()
+
+    try:
+        coord_str = f"{origin['lng']},{origin['lat']};{destination['lng']},{destination['lat']}"
+        url = f"https://router.project-osrm.org/route/v1/driving/{coord_str}?overview=full&geometries=geojson"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+        routes = data.get("routes", [])
+        if not routes:
+            raise ValueError("OSRM 未返回路径")
+        route = routes[0]
+        coords = route.get("geometry", {}).get("coordinates", [])
+        distance_m = route.get("distance", 0)
+        duration_s = route.get("duration", 0)
+        if len(coords) < 2:
+            raise ValueError("路径坐标不足")
+
+        return ToolResult(
+            success=True,
+            data={
+                "distance_m": round(distance_m, 2),
+                "distance_km": round(distance_m / 1000, 2),
+                "duration_min": round(duration_s / 60, 1),
+                "is_fallback": False,
+            },
+            geojson={
+                "type": "FeatureCollection",
+                "features": [{
+                    "type": "Feature",
+                    "geometry": {"type": "LineString", "coordinates": coords},
+                    "properties": {
+                        "_toolName": "online_route_planning",
+                        "_displayName": f"行车路径 ({round(distance_m/1000, 2)} km, {round(duration_s/60)} 分钟)",
+                    },
+                }],
+            },
+            message=f"路径规划完成，距离 {round(distance_m/1000, 2)} km，预计 {round(duration_s/60)} 分钟",
+        ).to_dict()
+    except Exception:
+        # 降级为直线距离
+        def _haversine(lng1, lat1, lng2, lat2):
+            R = 6371000
+            phi1, phi2 = math.radians(lat1), math.radians(lat2)
+            dphi = math.radians(lat2 - lat1)
+            dlambda = math.radians(lng2 - lng1)
+            a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+            return 2 * R * math.asin(math.sqrt(a))
+
+        dist = _haversine(origin["lng"], origin["lat"], destination["lng"], destination["lat"])
+        coords = [[origin["lng"], origin["lat"]], [destination["lng"], destination["lat"]]]
+        return ToolResult(
+            success=True,
+            data={
+                "distance_m": round(dist, 2),
+                "distance_km": round(dist / 1000, 2),
+                "duration_min": None,
+                "is_fallback": True,
+            },
+            geojson={
+                "type": "FeatureCollection",
+                "features": [{
+                    "type": "Feature",
+                    "geometry": {"type": "LineString", "coordinates": coords},
+                    "properties": {
+                        "_toolName": "online_route_planning",
+                        "_displayName": f"直线路径 ({round(dist/1000, 2)} km, 降级)",
+                        "_isFallback": True,
+                    },
+                }],
+            },
+            message=f"在线路径服务不可用，降级为直线（{round(dist/1000, 2)} km）",
+        ).to_dict()
+
+
+@tool
+async def mock_nearby_resources(center: str, resource_type: str = "hospital", count: int = 5, radius: int = 5000) -> dict:
+    """
+    生成模拟的周边资源点（医院/物资点/救援队）。
+    仅当 spatial_query 或 feature_search 查不到真实数据时使用。
+    返回结果会标注为模拟数据，必须在最终方案中告知用户这些是模拟数据。
+
+    Args:
+        center: 中心点坐标 JSON 字符串，如 '{"lng":116.28,"lat":39.85}'
+        resource_type: 资源类型，可选：hospital(医院)、supply(物资点)、rescue(救援队)
+        count: 生成数量，1-10
+        radius: 分布半径（米），默认 5000
+    """
+    center = _normalize_geometry(center)
+    if not center or "lng" not in center or "lat" not in center:
+        return ToolResult(success=False, error="中心点坐标无效").to_dict()
+
+    count = max(1, min(10, count))
+    radius = max(500, min(50000, radius))
+
+    type_names = {
+        "hospital": "模拟医院",
+        "supply": "模拟物资点",
+        "rescue": "模拟救援队",
+    }
+    type_name = type_names.get(resource_type, "模拟资源点")
+
+    lng, lat = center["lng"], center["lat"]
+    lat_per_m = 1 / 111000
+    lng_per_m = 1 / (111000 * math.cos(math.radians(lat)))
+
+    features = []
+    for i in range(count):
+        angle = random.uniform(0, 2 * math.pi)
+        dist = random.uniform(radius * 0.2, radius)
+        d_lng = dist * math.cos(angle) * lng_per_m
+        d_lat = dist * math.sin(angle) * lat_per_m
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [round(lng + d_lng, 6), round(lat + d_lat, 6)]},
+            "properties": {
+                "_toolName": "mock_nearby_resources",
+                "_displayName": f"{type_name}{chr(65 + i)}",
+                "_mock": True,
+                "_mockType": type_name,
+                "type": resource_type,
+                "distance_from_center_m": round(dist, 0),
+            },
+        })
+
+    return ToolResult(
+        success=True,
+        data={
+            "count": count,
+            "resource_type": resource_type,
+            "is_mock": True,
+        },
+        geojson={"type": "FeatureCollection", "features": features},
+        message=f"已生成 {count} 个模拟{type_name}（半径 {radius}m 内，⚠️模拟数据）",
+    ).to_dict()
+
+
 # 导出所有工具列表
 GIS_TOOLS = [
     feature_search,
@@ -665,4 +822,6 @@ GIS_TOOLS = [
     shortest_path,
     service_area,
     fly_to_location,
+    online_route_planning,
+    mock_nearby_resources,
 ]
