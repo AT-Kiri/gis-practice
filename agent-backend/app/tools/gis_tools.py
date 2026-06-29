@@ -7,6 +7,7 @@ import asyncio
 import json
 import math
 import random
+import threading
 import httpx
 from langchain_core.tools import tool
 from app.schemas.tool_result import ToolResult
@@ -28,6 +29,36 @@ from app.services.iserver_client import (
 )
 
 
+# 用户消息上下文（线程级）：graph.py/agents.py 在执行前设置，
+# 供 spatial_query 等工具推断 LLM 没传的参数（如 feature_type）
+_user_msg_ctx = threading.local()
+
+
+def set_user_message_context(msg: str):
+    """设置当前请求的用户消息，供工具内部推断参数使用"""
+    _user_msg_ctx.msg = msg
+
+
+def _infer_feature_type_from_message() -> str:
+    """从用户消息推断要素类型。
+    DeepSeek-V3.2 常不传 feature_type 参数，这里做兜底。
+    """
+    msg = getattr(_user_msg_ctx, "msg", "") or ""
+    if "点要素" in msg or "点状要素" in msg:
+        return "point"
+    if "线要素" in msg or "线状要素" in msg:
+        return "line"
+    if "面要素" in msg or "面状要素" in msg:
+        return "polygon"
+    # 应急救援场景：查询周边资源（医院/物资点/救援队等）默认查点要素
+    # 这些资源在数据源中都是点要素（County_P/Town_P），线/面要素不是救援资源
+    rescue_keywords = ["救援", "应急", "医院", "物资", "资源", "避难", "消防", "公安",
+                       "受灾", "灾情", "周边资源", "附近资源", "医疗", " shelter"]
+    if any(kw in msg for kw in rescue_keywords):
+        return "point"
+    return "all"
+
+
 def _normalize_geometry(g):
     """
     归一化几何参数：LLM（尤其 DeepSeek-V3.2）有时会把 dict 类型参数
@@ -39,6 +70,44 @@ def _normalize_geometry(g):
         except Exception:
             return None
     return g
+
+
+def _simplify_geometry_for_llm(geometry: dict, max_points: int = 20) -> str:
+    """将几何对象简化为 JSON 字符串（最多 max_points 个点），供 LLM 链式调用。
+    用于 buffer_analysis 的 data.geometry_brief，LLM 可直接传给 spatial_query 的 geometry 参数。
+    """
+    if not geometry or not isinstance(geometry, dict):
+        return ""
+    gtype = geometry.get("type")
+    coordinates = geometry.get("coordinates")
+    if not coordinates:
+        return ""
+
+    def _simplify_ring(ring):
+        if len(ring) <= max_points:
+            return [[round(p[0], 6), round(p[1], 6)] for p in ring]
+        step = len(ring) / max_points
+        out = []
+        for i in range(max_points):
+            p = ring[int(i * step)]
+            out.append([round(p[0], 6), round(p[1], 6)])
+        if out[0] != out[-1]:
+            out.append(out[0])
+        return out
+
+    try:
+        if gtype == "Point":
+            return json.dumps({"type": "Point", "coordinates": [round(coordinates[0], 6), round(coordinates[1], 6)]})
+        if gtype == "Polygon":
+            ring = coordinates[0] if isinstance(coordinates[0][0], (list, tuple)) else coordinates
+            simplified = _simplify_ring(ring)
+            return json.dumps({"type": "Polygon", "coordinates": [simplified]})
+        if gtype == "LineString":
+            simplified = _simplify_ring(coordinates)
+            return json.dumps({"type": "LineString", "coordinates": simplified})
+    except (IndexError, TypeError, ValueError):
+        return ""
+    return ""
 
 
 @tool
@@ -177,16 +246,24 @@ async def feature_search(keyword: str, level: str = "all", region: str = "auto")
         if names:
             summary += f"，包括：{'、'.join(names)}"
 
-        # data.features 只返回摘要，避免 ReAct 循环 token 暴涨
+        # data.features 返回摘要 + 坐标，让 LLM 能传递给路径规划工具
         # 完整 geometry 保留在 geojson 字段供前端渲染，不进 LLM 上下文
-        features_summary = [
-            {
+        features_summary = []
+        for i, f in enumerate(all_features[:20]):
+            feat = {
                 "displayName": f["displayName"],
                 "dataset": f["datasetName"],
                 "region": f.get("region", "jingjin"),
             }
-            for f in all_features[:20]
-        ]
+            # 提取 Point 坐标，供 LLM 传递给 shortest_path/online_route_planning
+            if i < len(geojson_features):
+                geo = geojson_features[i].get("geometry", {})
+                if geo.get("type") == "Point":
+                    coords = geo.get("coordinates", [])
+                    if len(coords) >= 2:
+                        feat["lng"] = round(coords[0], 6)
+                        feat["lat"] = round(coords[1], 6)
+            features_summary.append(feat)
 
         return ToolResult(
             success=True,
@@ -204,32 +281,63 @@ async def feature_search(keyword: str, level: str = "all", region: str = "auto")
 
 
 @tool
-async def spatial_query(geometry: str, mode: str = "circle", feature_type: str = "all") -> dict:
+async def spatial_query(geometry: str, feature_type: str = "all", region: str = "jingjin") -> dict:
     """
-    空间查询：在指定几何范围内查询地理要素。
+    空间查询：在指定 Polygon 范围内查询地理要素。
     当用户想查询某个区域内有哪些地物时使用此工具。
 
     Args:
-        geometry: GeoJSON 几何对象的 JSON 字符串，如 '{"type":"Polygon","coordinates":[[[116,39],[117,39],[117,40],[116,40],[116,39]]]}'
-        mode: 查询模式，如 circle/rect/point
-        feature_type: 要素类型过滤，可选值：all(全部)、point(仅点要素：县级市/乡镇)、line(仅线要素：道路/铁路/河流/海岸线)、polygon(仅面要素：湖泊/土地利用/地貌)
+        geometry: GeoJSON Polygon 几何对象的 JSON 字符串。通常来自 buffer_analysis 返回的 data.geometry_brief。
+                  【重要】不要直接传 Point，必须先调 buffer_analysis 生成缓冲区 Polygon，再把 Polygon 传给本参数。
+        feature_type: 【重要】要素类型过滤。用户提到"点要素"必须传 "point"，提到"线要素"必须传 "line"，提到"面要素"必须传 "polygon"。仅当用户说"全部要素"或未提类型时才传 "all"
+        region: 搜索区域，可选 jingjin(京津冀，默认) 或 changchun(长春)
     """
     # LLM 可能把 geometry 以 JSON 字符串形式传入，统一归一化为 dict
     geometry = _normalize_geometry(geometry)
     if not geometry or not geometry.get("type"):
         return ToolResult(success=False, error="几何格式无效").to_dict()
 
+    # 拒绝 Point 几何，引导 LLM 先调 buffer_analysis
+    if geometry.get("type") == "Point":
+        return ToolResult(
+            success=False,
+            error="spatial_query 需要 Polygon 范围，不能传 Point。请先调 buffer_analysis 生成缓冲区，再把返回的 data.geometry_brief 传给 spatial_query 的 geometry 参数",
+        ).to_dict()
+
     try:
-        server_geo = geojson_to_server_geo(geometry)
-        # 按要素类型筛选数据集
-        DATASETS_BY_TYPE = {
-            "point": ["County_P", "Town_P"],
-            "line": ["Road_L", "Railway_L", "River_L", "Coastline_L"],
-            "polygon": ["Lake_R", "Landuse_R", "Geomor_R"],
-            "all": ["County_P", "Town_P", "Road_L", "Railway_L", "River_L", "Lake_R", "Landuse_R", "Geomor_R", "Coastline_L"],
-        }
-        datasets = DATASETS_BY_TYPE.get(feature_type, DATASETS_BY_TYPE["all"])
-        dataset_names = [f"{DATASOURCE}:{d}" for d in datasets]
+        # 根据区域选择数据源和图层
+        if region == "changchun":
+            # 长春数据源：只有 POI 点要素，geometry 需 WGS84→平面坐标转换
+            server_geo = _geojson_to_changchun_server_geo(geometry)
+            datasets = CHANGCHUN_POI_LAYERS  # 长春全是点要素，忽略 feature_type
+            dataset_names = [f"{CHANGCHUN_DATASOURCE}:{d}" for d in datasets]
+            layer_names_map = CHANGCHUN_LAYER_NAMES
+            post_fn = iserver_client.post_changchun_feature_results
+            convert_fn = convert_changchun_geometry
+            datasource_prefix = f"{CHANGCHUN_DATASOURCE}:"
+            is_changchun = True
+        else:
+            # 京津冀数据源
+            # DeepSeek-V3.2 常不传 feature_type，这里从用户消息兜底推断
+            if feature_type == "all":
+                inferred = _infer_feature_type_from_message()
+                if inferred != "all":
+                    feature_type = inferred
+
+            server_geo = geojson_to_server_geo(geometry)
+            DATASETS_BY_TYPE = {
+                "point": ["County_P", "Town_P"],
+                "line": ["Road_L", "Railway_L", "River_L", "Coastline_L"],
+                "polygon": ["Lake_R", "Landuse_R", "Geomor_R"],
+                "all": ["County_P", "Town_P", "Road_L", "Railway_L", "River_L", "Lake_R", "Landuse_R", "Geomor_R", "Coastline_L"],
+            }
+            datasets = DATASETS_BY_TYPE.get(feature_type, DATASETS_BY_TYPE["all"])
+            dataset_names = [f"{DATASOURCE}:{d}" for d in datasets]
+            layer_names_map = LAYER_NAMES
+            post_fn = iserver_client.post_feature_results
+            convert_fn = server_geo_to_geojson
+            datasource_prefix = f"{DATASOURCE}:"
+            is_changchun = False
 
         body = {
             "getFeatureMode": "SPATIAL",
@@ -237,13 +345,13 @@ async def spatial_query(geometry: str, mode: str = "circle", feature_type: str =
             "geometry": server_geo,
             "spatialQueryMode": "INTERSECT",
         }
-        data = await iserver_client.post_feature_results(body)
+        data = await post_fn(body)
 
         # 解析结果
         dataset_infos = data.get("datasetInfos", [])
         dataset_ranges = [
             {
-                "dataset": info["datasetName"].replace(f"{DATASOURCE}:", ""),
+                "dataset": info["datasetName"].replace(datasource_prefix, ""),
                 "start": info["featureRange"]["start"],
                 "end": info["featureRange"]["end"],
             }
@@ -259,19 +367,25 @@ async def spatial_query(geometry: str, mode: str = "circle", feature_type: str =
             field_values = f.get("fieldValues", [])
             for i, name in enumerate(field_names):
                 properties[name] = field_values[i]
+            # 长春数据源的 displayName 优先取 name 字段
+            if is_changchun:
+                display_name = properties.get("name") or properties.get("NAME") or "未命名"
+            else:
+                display_name = extract_display_name(properties)
             all_features.append({
                 "dataset": dataset_name,
-                "datasetName": LAYER_NAMES.get(dataset_name, dataset_name),
+                "datasetName": layer_names_map.get(dataset_name, dataset_name),
                 "geometry": f.get("geometry"),
                 "properties": properties,
-                "displayName": extract_display_name(properties),
+                "displayName": display_name,
                 "smid": properties.get("SMID", f.get("ID")),
+                "region": region,
             })
 
-        # 构建 GeoJSON
+        # 构建 GeoJSON（长春要素需平面坐标→WGS84 转换）
         geojson_features = []
         for f in all_features:
-            geo = server_geo_to_geojson(f["geometry"])
+            geo = convert_fn(f["geometry"])
             if geo:
                 geojson_features.append({
                     "type": "Feature",
@@ -304,13 +418,37 @@ async def spatial_query(geometry: str, mode: str = "circle", feature_type: str =
                 "total": len(all_features),
                 "features": features_summary,
                 "datasetCounts": dataset_counts,
+                "region": region,
             },
             geojson={"type": "FeatureCollection", "features": geojson_features},
-            message=f"查询到 {len(all_features)} 个要素",
+            message=f"查询到 {len(all_features)} 个要素（{region}）",
         ).to_dict()
 
     except Exception as e:
         return ToolResult(success=False, error=f"空间查询失败: {e}").to_dict()
+
+
+def _geojson_to_changchun_server_geo(g: dict) -> dict:
+    """GeoJSON Geometry（WGS84）→ iServer Server JSON（长春平面坐标）"""
+    if not g or not g.get("type"):
+        return g
+    if g["type"] == "Point":
+        x, y = wgs84_to_changchun(g["coordinates"][0], g["coordinates"][1])
+        return {"type": "POINT", "points": [{"x": x, "y": y}], "parts": [1]}
+    if g["type"] == "Polygon":
+        ring = g["coordinates"][0]
+        points = []
+        for lng, lat in ring:
+            x, y = wgs84_to_changchun(lng, lat)
+            points.append({"x": x, "y": y})
+        return {"type": "REGION", "points": points, "parts": [len(points)]}
+    if g["type"] == "LineString":
+        points = []
+        for lng, lat in g["coordinates"]:
+            x, y = wgs84_to_changchun(lng, lat)
+            points.append({"x": x, "y": y})
+        return {"type": "LINE", "points": points, "parts": [len(points)]}
+    return g
 
 
 @tool
@@ -352,9 +490,18 @@ async def buffer_analysis(geometry: str, distance: float) -> dict:
         if not geojson_geo:
             return ToolResult(success=False, error="缓冲区结果转换失败").to_dict()
 
+        # 生成简化版 geometry_brief（最多 20 个点），放入 data 供 LLM 链式调用 spatial_query
+        # 完整 geojson 仍走 geojson 字段（会被 ToolResult.to_dict 剥离到线程缓存传给前端）
+        geometry_brief = _simplify_geometry_for_llm(geojson_geo, max_points=20)
+
         return ToolResult(
             success=True,
-            data={"bufferDistance": distance},
+            data={
+                "bufferDistance": distance,
+                "geometry_type": geojson_geo.get("type"),
+                # geometry_brief 可直接传给 spatial_query 的 geometry 参数
+                "geometry_brief": geometry_brief,
+            },
             geojson={
                 "type": "FeatureCollection",
                 "features": [{
@@ -363,7 +510,7 @@ async def buffer_analysis(geometry: str, distance: float) -> dict:
                     "properties": {"_toolName": "buffer_analysis", "_displayName": f"缓冲区({distance}m)"},
                 }],
             },
-            message=f"缓冲区分析完成，半径 {distance} 米",
+            message=f"缓冲区分析完成，半径 {distance} 米。可将 data.geometry_brief 直接传给 spatial_query 的 geometry 参数查询范围内要素",
         ).to_dict()
 
     except Exception as e:

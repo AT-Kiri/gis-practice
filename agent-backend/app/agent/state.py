@@ -2,8 +2,9 @@
 多智能体状态定义与 Schema
 强约束：所有结构化输出都通过 JSON Schema 校验
 """
+import json
 from typing import TypedDict, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ==================== 意图类型枚举 ====================
@@ -21,6 +22,20 @@ class IntentResult(BaseModel):
         description="提取的实体，如 location/disaster/radius/dataset 等",
     )
     reasoning: str = Field(default="", description="分类理由（简要）")
+
+    @field_validator("entities", mode="before")
+    @classmethod
+    def _parse_entities(cls, v):
+        """DeepSeek-V3.2 有时返回空字符串而非 dict，这里做兜底"""
+        if isinstance(v, str):
+            if not v.strip():
+                return {}
+            try:
+                parsed = json.loads(v)
+                return parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                return {}
+        return v if isinstance(v, dict) else {}
 
 
 # ==================== 任务规划 Schema ====================

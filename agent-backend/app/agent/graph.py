@@ -24,7 +24,7 @@ SYSTEM_PROMPT = """你是京津冀城市综合防灾应急管理系统的 AI 应
 
 可用的 GIS 工具：
 - feature_search: 专题检索，按关键字搜索地理要素（京津冀：区县/乡镇/道路/河流等；长春市：公园/医院/学校等POI）。支持 region 参数指定搜索区域：auto(自动，先查京津冀，无结果回退查长春)、jingjin(仅京津冀)、changchun(仅长春)
-- spatial_query: 空间查询，在指定范围内查询地物，支持 feature_type 参数过滤要素类型（point/line/polygon/all）
+- spatial_query: 空间查询，在指定范围内查询地物。支持 feature_type 参数过滤要素类型（point/line/polygon/all），支持 region 参数选择数据源（jingjin=京津冀默认/changchun=长春）。geometry 参数传 GeoJSON 字符串
 - buffer_analysis: 缓冲区分析，分析某地点周边影响范围
 - overlay_analysis: 叠置分析，分析两个图层的叠加关系
 - shortest_path: 最短路径分析（仅长春路网），规划多点间最短路径
@@ -35,26 +35,14 @@ SYSTEM_PROMPT = """你是京津冀城市综合防灾应急管理系统的 AI 应
 - rag_retrieval: 知识检索，从应急救援知识库中检索救援方案、处置流程、应急预案等内容。当用户询问救援知识、应急流程、预案内容时使用
 
 使用规则：
-1. 用户询问"XXX在哪"时，使用 feature_search 或 fly_to_location
-2. 用户要求"分析XXX周边"时，先用 feature_search 获取坐标，再用 buffer_analysis
-2.1. 用户要求"查询范围内的点要素/线要素/面要素"时，spatial_query 的 feature_type 参数分别传 point/line/polygon
-3. 路径规划规则：
-   - 长春市内路径（起终点都在长春市）：先用 feature_search(region=changchun) 查起终点坐标，再用 shortest_path
-   - 非长春市路径（如京津冀地区）：直接用 online_route_planning，传入起终点 GeoJSON Point 坐标
-   - 不要用 shortest_path 做非长春市的路径规划（路网数据源不支持）
-4. 用户要求"服务区/可达范围"时，先获取坐标，再用 service_area（仅长春市）
-5. shortest_path 和 service_area 使用长春市路网，坐标范围在长春市（约 125.15-125.45°E, 43.74-44.00°N）
-6. 其他工具使用京津冀数据（约 113-120°E, 36-43°N）
-7. 工具返回的 geojson 会自动渲染到地图上，你不需要描述坐标，只需总结结果
-8. 如果用户的问题不涉及 GIS 操作，直接用文字回答
-9. 长春市地点检索规则：
-   - 当用户提到"长春市"或具体的长春市内地点（如"南湖公园"、"长春公园"、"吉林大学"等）时，feature_search 必须传 region="changchun" 以确保从长春数据源检索
-   - 当用户要做路径规划/服务区分析且提到长春市内地点时，务必先用 region="changchun" 的 feature_search 查到起点和终点的精确坐标（返回的 geometry 为 WGS84 经纬度），再将坐标传给 shortest_path/service_area
-   - 不要用京津冀的近似坐标做长春市路径规划，否则起终点会偏离实际位置
-10. 模拟数据使用规则（重要）：
-   - 仅当真实查询无结果时才使用 mock_nearby_resources，不要在能查到真实数据时使用
-   - 使用模拟数据后，必须在回复中明确告知用户"以下为模拟数据，仅供演示"
-   - 模拟数据主要用于应急救援场景下补充医院/物资点/救援队等关键资源
+1. "XXX在哪" → feature_search 查地点坐标。fly_to_location 仅用于移动地图视角，不用于路径规划
+2. "XXX周边/范围内查要素" → feature_search 取坐标 → buffer_analysis 生成缓冲区（取 data.geometry_brief）→ spatial_query(geometry=geometry_brief, feature_type=类型)。用户提到"点/线/面要素"时 feature_type 必传 point/line/polygon，不传 all
+3. 【路径规划】"从A到B怎么走" → feature_search(region="changchun") 查起终点坐标 → shortest_path（长春市内）或 online_route_planning（非长春市）。路径规划只调 feature_search + 路径工具，禁止调 spatial_query/buffer_analysis/fly_to_location
+4. "服务区/可达范围" → feature_search(region="changchun") 取坐标 → service_area（仅长春市）
+5. 长春市地点（南湖公园、吉林大学、省体育局等）feature_search 必须传 region="changchun"
+6. 模拟数据：仅当真实查询无结果时用 mock_nearby_resources，使用后必须告知用户"模拟数据"
+7. 工具返回的 geojson 会自动渲染到地图上，不需要描述坐标
+8. 不涉及 GIS 操作的问题直接用文字回答
 
 回答风格：
 - 简洁专业，直接回答问题
@@ -113,6 +101,10 @@ async def stream_agent_events(user_message: str, session_id: str = "default") ->
     yield {"event": "agent_start", "data": {"agent_name": "assistant"}}
 
     try:
+        # 设置用户消息上下文，供 spatial_query 等工具推断 LLM 没传的参数（如 feature_type）
+        from app.tools.gis_tools import set_user_message_context
+        set_user_message_context(user_message)
+
         # 读取会话历史，拼接到当前消息前面（实现会话内短期记忆）
         history = get_history(session_id)
         inputs = {"messages": history + [HumanMessage(content=user_message)]}
@@ -161,20 +153,22 @@ async def stream_agent_events(user_message: str, session_id: str = "default") ->
                             raise ValueError("工具输出不是 JSON 对象")
                         success = parsed.get("success", True)
                         result_data = parsed.get("data", {})
-                        geojson = parsed.get("geojson")
                         message = parsed.get("message", "")
                         if not success:
                             message = parsed.get("error", "工具执行失败")
                     except (json.JSONDecodeError, ValueError):
                         success = False
-                        message = tool_output[:200]
+                        message = tool_output[:200] if isinstance(tool_output, str) else "工具输出解析失败"
                 elif isinstance(tool_output, dict):
                     success = tool_output.get("success", True)
                     result_data = tool_output.get("data", {})
-                    geojson = tool_output.get("geojson")
                     message = tool_output.get("message", "")
                     if not success:
                         message = tool_output.get("error", "工具执行失败")
+
+                # 从线程级缓存取完整 geojson（ToolResult.to_dict() 已剥离 geojson 避免token暴涨）
+                from app.schemas.tool_result import pop_pending_geojson
+                geojson = pop_pending_geojson()
 
                 yield {
                     "event": "tool_result",

@@ -133,7 +133,7 @@ async def stream_coordinator_events(
             step_summary = ""
             step_success = True
             step_geojson = None
-            step_data: dict = {}
+            step_data_list: list[dict] = []  # Bug3 修复：改为 list，保留所有工具的 result
 
             async for sub_event in execute_sub_agent(agent_type, full_description):
                 ev_type = sub_event.get("type")
@@ -150,7 +150,7 @@ async def stream_coordinator_events(
                     if sub_event.get("geojson"):
                         step_geojson = sub_event["geojson"]
                     if sub_event.get("result"):
-                        step_data = sub_event["result"]
+                        step_data_list.append(sub_event["result"])
                     if not sub_event.get("success", True):
                         step_success = False
                     yield {
@@ -175,7 +175,8 @@ async def stream_coordinator_events(
                 "success": step_success,
                 "summary": step_summary,
                 "geojson": step_geojson,
-                "data": step_data,
+                "data_list": step_data_list,  # Bug3 修复：所有工具 result 列表
+                "data": step_data_list[-1] if step_data_list else {},  # 兼容字段：取最后一个
             })
 
             yield {
@@ -278,9 +279,19 @@ def _build_step_context(step_results: list[dict]) -> str:
     注入下一步子 Agent 的 description，修复子 Agent 间无法传递数据的缺陷。
 
     返回空字符串表示无可用上下文（第一步时）。
+
+    Bug1 修复：坐标以多种格式注入（{"lng":...,"lat":...} 给 mock/online_route，
+                {"type":"Point","coordinates":[...]} 给 buffer_analysis）
+    Bug2 修复：Polygon 注入简化版完整 GeoJSON，供 spatial_query 直接使用
+    Bug3 修复：遍历 data_list（一个步骤可能调用多个工具，保留所有工具 result）
+    Bug7 修复：提取 mock 数据的 count / is_mock 字段
+    问题3 优化：从第一步提取受灾点中心坐标，后续步骤的 Point 要素按到中心距离排序
     """
     if not step_results:
         return ""
+
+    # 问题3：提取第一步的受灾点坐标作为中心点，用于后续步骤按距离排序
+    center = _extract_center_from_step(step_results[0])
 
     lines = ["【前序步骤执行结果（请直接复用其中的坐标和数据，不要重复查询）】"]
 
@@ -288,7 +299,7 @@ def _build_step_context(step_results: list[dict]) -> str:
         agent_type = r.get("agent_type", "")
         description = r.get("description", "")
         summary = r.get("summary", "")
-        data = r.get("data") or {}
+        data_list = r.get("data_list") or []
         geojson = r.get("geojson")
 
         lines.append(f"\n[步骤{i} - {agent_type}] {description}")
@@ -297,24 +308,85 @@ def _build_step_context(step_results: list[dict]) -> str:
         if summary:
             lines.append(f"摘要: {summary}")
 
-        # 2. 关键坐标（从 geojson 提取 Point / Polygon 质心 / LineString 端点）
-        coords_text = _extract_coords_from_geojson(geojson)
+        # 2. 关键坐标（多格式注入 + Polygon 完整 GeoJSON）
+        # 问题3：从第二步起传入 center，对 Point 要素按距离排序
+        coords_text = _extract_coords_from_geojson(
+            geojson, center=center if i > 1 else None
+        )
         if coords_text:
             lines.append(f"关键坐标: {coords_text}")
 
-        # 3. 数据摘要（total / bufferDistance / distance_km 等）
-        data_summary = _extract_data_summary(data)
-        if data_summary:
-            lines.append(f"数据: {data_summary}")
+        # 3. 数据摘要（遍历所有工具的 data，Bug3 修复）
+        if len(data_list) == 1:
+            data_summary = _extract_data_summary(data_list[0])
+            if data_summary:
+                lines.append(f"数据: {data_summary}")
+        elif len(data_list) > 1:
+            for j, data in enumerate(data_list, 1):
+                data_summary = _extract_data_summary(data)
+                if data_summary:
+                    lines.append(f"工具{j}数据: {data_summary}")
 
     return "\n".join(lines)
 
 
-def _extract_coords_from_geojson(geojson) -> str:
+def _extract_center_from_step(step: dict):
+    """从某个步骤的 geojson 中提取中心坐标（Point 直接取，Polygon 取质心）。
+    返回 (lng, lat) 元组，提取失败返回 None。
+    """
+    geojson = step.get("geojson") if isinstance(step, dict) else None
+    if not geojson or not isinstance(geojson, dict):
+        return None
+    features = geojson.get("features") or []
+    if not features:
+        return None
+    # 取第一个要素作为中心
+    f = features[0]
+    if not isinstance(f, dict):
+        return None
+    geom = f.get("geometry")
+    if not geom:
+        return None
+    gtype = geom.get("type")
+    coordinates = geom.get("coordinates")
+    if not coordinates:
+        return None
+    try:
+        if gtype == "Point":
+            return (float(coordinates[0]), float(coordinates[1]))
+        if gtype == "Polygon":
+            ring = coordinates[0] if isinstance(coordinates[0][0], (list, tuple)) else coordinates
+            if ring:
+                avg_lng = sum(p[0] for p in ring) / len(ring)
+                avg_lat = sum(p[1] for p in ring) / len(ring)
+                return (avg_lng, avg_lat)
+    except (IndexError, TypeError, ValueError):
+        return None
+    return None
+
+
+def _haversine_km(lng1, lat1, lng2, lat2) -> float:
+    """计算两点间球面距离（公里），用于 Point 要素排序。"""
+    R = 6371.0
+    import math as _math
+    rl1 = _math.radians(lat1)
+    rl2 = _math.radians(lat2)
+    dlat = _math.radians(lat2 - lat1)
+    dlng = _math.radians(lng2 - lng1)
+    a = _math.sin(dlat / 2) ** 2 + _math.cos(rl1) * _math.cos(rl2) * _math.sin(dlng / 2) ** 2
+    return 2 * R * _math.asin(_math.sqrt(a))
+
+
+def _extract_coords_from_geojson(geojson, center=None) -> str:
     """从 GeoJSON FeatureCollection 中提取关键坐标供下一步复用。
-    - Point: 直接取坐标
-    - LineString: 取起点和终点
-    - Polygon: 计算质心
+
+    Bug1 修复：Point 同时注入两种格式：
+      - {"lng":...,"lat":...}（给 mock_nearby_resources / online_route_planning）
+      - {"type":"Point","coordinates":[...]}（给 buffer_analysis）
+    Bug2 修复：Polygon 注入简化版完整 GeoJSON（最多20个点），供 spatial_query 直接使用
+    问题3 优化：当 center 不为 None 时，Point 要素按到 center 的距离升序排序，
+                并在名称后标注距离，便于 LLM 优先选择最近的资源点
+
     最多提取前 5 个要素的坐标，避免上下文过长。
     """
     if not geojson or not isinstance(geojson, dict):
@@ -323,10 +395,47 @@ def _extract_coords_from_geojson(geojson) -> str:
     if not features:
         return ""
 
-    coords_list = []
-    for f in features[:5]:
+    # 问题3：当传入 center 时，先把所有 Point 要素按距离排序
+    point_items = []  # [(feature, distance_km), ...]
+    other_items = []  # 非 Point 要素保留原顺序
+    for f in features:
         if not isinstance(f, dict):
             continue
+        geom = f.get("geometry")
+        if not geom or not geom.get("type"):
+            continue
+        gtype = geom.get("type")
+        coordinates = geom.get("coordinates")
+        if not coordinates:
+            continue
+        if gtype == "Point" and center:
+            try:
+                lng, lat = float(coordinates[0]), float(coordinates[1])
+                dist = _haversine_km(center[0], center[1], lng, lat)
+                point_items.append((f, dist))
+            except (IndexError, TypeError, ValueError):
+                other_items.append((f, None))
+        else:
+            other_items.append((f, None))
+
+    # 问题3：Point 按距离升序排序，最近的在前
+    if point_items:
+        point_items.sort(key=lambda x: x[1])
+        # 最多保留前 5 个 Point（按距离）
+        sorted_features = [f for f, _ in point_items[:5]] + [f for f, _ in other_items[:5]]
+    else:
+        sorted_features = [f for f, _ in other_items[:5]]
+
+    # 构建距离查找表（用于在名称后标注距离）
+    dist_map = {}
+    if point_items:
+        for f, d in point_items[:5]:
+            dist_map[id(f)] = d
+
+    coords_list = []
+    polygon_geojson_list = []  # Bug2: 收集 Polygon 完整 GeoJSON
+
+    for f in sorted_features:
         geom = f.get("geometry")
         if not geom:
             continue
@@ -337,35 +446,79 @@ def _extract_coords_from_geojson(geojson) -> str:
 
         props = f.get("properties") or {}
         name = props.get("_displayName") or props.get("NAME") or ""
+        is_mock = props.get("_mock") is True
+        mock_tag = "[模拟]" if is_mock else ""
+        # 问题3：附加距离标注
+        dist_tag = ""
+        if id(f) in dist_map:
+            dist_tag = f"({dist_map[id(f)]:.2f}km)"
 
         try:
             if gtype == "Point":
                 lng, lat = coordinates[0], coordinates[1]
+                # Bug1: 同时给两种格式，LLM 可直接复制使用
                 coords_list.append(
-                    f"{name}({lng:.6f},{lat:.6f})" if name else f"({lng:.6f},{lat:.6f})"
+                    f'{name}{mock_tag}{dist_tag}: {{"lng":{lng},"lat":{lat}}} '
+                    f'(或 GeoJSON: {{"type":"Point","coordinates":[{lng},{lat}]}})'
                 )
             elif gtype == "LineString" and coordinates:
                 first = coordinates[0]
                 last = coordinates[-1]
                 coords_list.append(
-                    f"{name}起点({first[0]:.6f},{first[1]:.6f})-终点({last[0]:.6f},{last[1]:.6f})"
+                    f'{name}{mock_tag}起点: {{"lng":{first[0]},"lat":{first[1]}}}, '
+                    f'终点: {{"lng":{last[0]},"lat":{last[1]}}}'
                 )
             elif gtype == "Polygon" and coordinates:
-                # Polygon.coordinates[0] 是外环
+                # Bug2: 质心 + 简化版完整 GeoJSON
                 ring = coordinates[0] if isinstance(coordinates[0][0], (list, tuple)) else coordinates
                 if ring:
                     avg_lng = sum(p[0] for p in ring) / len(ring)
                     avg_lat = sum(p[1] for p in ring) / len(ring)
-                    coords_list.append(f"{name}质心({avg_lng:.6f},{avg_lat:.6f})")
+                    coords_list.append(
+                        f'{name}{mock_tag}质心: {{"lng":{avg_lng:.6f},"lat":{avg_lat:.6f}}}'
+                    )
+                    # 简化 Polygon（最多20个点），供 spatial_query 直接使用
+                    simplified = _simplify_polygon_ring(ring, 20)
+                    polygon_geojson_list.append({
+                        "type": "Polygon",
+                        "coordinates": [simplified],
+                    })
         except (IndexError, TypeError, ValueError):
             continue
 
-    return "; ".join(coords_list)
+    result = "; ".join(coords_list)
+
+    # 问题3：当 Point 已按距离排序时，提示 LLM 优先选最近的
+    if point_items and center:
+        result = "[已按到受灾点距离从近到远排序，路径规划请优先取前2条] " + result
+
+    # Bug2: 追加完整 Polygon GeoJSON，LLM 可直接传给 spatial_query 的 geometry 参数
+    if polygon_geojson_list:
+        result += "\n  缓冲区Polygon(可直接传给spatial_query的geometry参数): "
+        result += json.dumps(polygon_geojson_list[0], ensure_ascii=False)
+
+    return result
+
+
+def _simplify_polygon_ring(ring: list, max_points: int = 20) -> list:
+    """简化 Polygon 环，最多保留 max_points 个点（均匀采样），并保证环闭合。"""
+    if len(ring) <= max_points:
+        return [[round(p[0], 6), round(p[1], 6)] for p in ring]
+    step = len(ring) / max_points
+    simplified = []
+    for i in range(max_points):
+        idx = int(i * step)
+        p = ring[idx]
+        simplified.append([round(p[0], 6), round(p[1], 6)])
+    # 闭合环（首尾相同）
+    if simplified[0] != simplified[-1]:
+        simplified.append(simplified[0])
+    return simplified
 
 
 def _extract_data_summary(data: dict) -> str:
     """从工具返回的 data 字段中提取关键摘要信息。
-    只提取对下一步有用的字段：total / bufferDistance / 路径距离时长 / 要素名列表。
+    Bug7 修复：新增 count / is_mock / resource_type 字段提取（mock_nearby_resources 返回）
     """
     if not data or not isinstance(data, dict):
         return ""
@@ -373,12 +526,20 @@ def _extract_data_summary(data: dict) -> str:
     parts = []
     if "total" in data:
         parts.append(f"total={data['total']}")
+    if "count" in data:  # Bug7: mock_nearby_resources 返回
+        parts.append(f"count={data['count']}")
+    if "is_mock" in data:  # Bug7: 标记是否模拟数据
+        parts.append(f"is_mock={data['is_mock']}")
+    if "resource_type" in data:
+        parts.append(f"resource_type={data['resource_type']}")
     if "bufferDistance" in data:
         parts.append(f"bufferDistance={data['bufferDistance']}m")
     if "distance_km" in data:
         parts.append(f"distance_km={data['distance_km']}")
     if "duration_min" in data:
         parts.append(f"duration_min={data['duration_min']}")
+    if "is_fallback" in data:  # online_route_planning 降级标记
+        parts.append(f"is_fallback={data['is_fallback']}")
     if "serviceAreaCount" in data:
         parts.append(f"serviceAreaCount={data['serviceAreaCount']}")
 

@@ -14,7 +14,8 @@
 | — | `spatial-analysis` | 缓冲区分析与叠置分析 | SpatialAnalysis | ✅ 完成 |
 | — | `thematic-search` | 专题检索（关键字 + 行政级别分类） | FeatureSearch | ✅ 完成 |
 | 2026-06-26 | `20260626-data-dashboard` | 数据大屏模块（分级地图、灾害详情、气象监控、缓冲区联动分析、路径规划） | DataDashboard | ✅ 完成 |
-| 2026-06-28 | `20260626-multi-agent-gis` | 多智能体协同 GIS 应急助手（P0 阶段：单 Agent + 7 GIS 工具 + SSE 流式 + 地图自动渲染） | AgentChatPanel / agent-backend | 🔄 P0 完成，P1 进行中 |
+| 2026-06-28 | `20260626-multi-agent-gis` | 多智能体协同 GIS 应急助手（P0：单 Agent + 7 GIS 工具 + SSE 流式 + 地图自动渲染） | AgentChatPanel / agent-backend | ✅ P0 完成 |
+| 2026-06-30 | `20260626-multi-agent-gis` | P1：多智能体协同（Coordinator + 4 子 Agent）+ RAG 知识库 + 双轨制路由 + token 溢出修复 + 应急场景演示 | agent-backend / agent-chat-panel | ✅ P1 完成 |
 
 ---
 
@@ -85,9 +86,12 @@ AgentChatPanel.vue                     # 右侧滑入式聊天面板（主组件
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/api/agent/chat` | POST | Agent 对话（SSE 流式响应，事件：agent_start/tool_start/tool_result/text/agent_end/error） |
+| `/api/agent/chat` | POST | 单 Agent 对话（SSE 流式响应，事件：agent_start/tool_start/tool_result/text/agent_end/error） |
+| `/api/agent/chat/multi` | POST | 多 Agent 协同对话（SSE 流式响应，事件：agent_start/intent_classified/plan_created/step_start/tool_start/tool_result/step_end/text/agent_end/error） |
 | `/api/agent/sessions/{session_id}/history` | GET | 获取会话历史（内存级，重启丢失） |
 | `/api/agent/sessions/{session_id}/history` | DELETE | 清空会话历史 |
+| `/api/rag/upload` | POST | 上传文档到 RAG 知识库 |
+| `/api/rag/search` | GET | RAG 检索调试接口 |
 
 **启动方式**（必须用 venv Python）：
 ```bash
@@ -97,25 +101,44 @@ d:\Code\AI-Code\GIS-Practice\agent-backend\venv\Scripts\python.exe -m uvicorn ap
 **目录结构**：
 ```
 agent-backend/app/
-├── api/agent.py              # Agent 对话 API（SSE）
-├── agent/graph.py            # LangGraph Agent 核心（单 Agent，P1 升级为多智能体）
-├── tools/gis_tools.py        # 7 个 GIS Tool（feature_search/spatial_query/buffer/overlay/shortest_path/service_area/fly_to）
+├── api/
+│   ├── agent.py              # Agent 对话 API（SSE）：单 Agent + 多 Agent 两个端点
+│   └── rag.py                # RAG 上传/检索 API
+├── agent/
+│   ├── graph.py              # 单 Agent（create_react_agent）+ SSE 事件流
+│   ├── coordinator.py        # P1 多 Agent 协同主循环（双轨制路由 + 步进调度）
+│   ├── state.py              # AgentState TypedDict
+│   ├── nodes/
+│   │   ├── intent.py         # 意图分类节点（JSON Schema 校验 + 重试）
+│   │   ├── planner.py        # 任务规划节点
+│   │   └── summarize.py      # 结果汇总节点（流式输出）
+│   └── sub_agents/
+│       └── agents.py         # 4 个子 Agent（search/analysis/route/knowledge）
+├── tools/
+│   ├── gis_tools.py          # 9 个 GIS Tool（feature_search/spatial_query/buffer/overlay/shortest_path/service_area/fly_to/online_route_planning/mock_nearby_resources）
+│   └── rag_tools.py          # rag_retrieval Tool
+├── schemas/
+│   └── tool_result.py        # ToolResult + threading.local geojson 剥离机制
 ├── services/
 │   ├── llm_service.py        # LLM 封装（OpenAI 兼容协议，当前接硅基流动）
 │   ├── iserver_client.py     # iServer REST API 封装
-│   └── session_store.py      # 内存级会话存储（短期记忆）
+│   ├── session_store.py      # 内存级会话存储（短期记忆）
+│   └── rag_service.py        # FAISS 向量库 + Embedding
 ├── config.py                 # pydantic-settings 配置（.env 优先于进程环境变量）
 └── main.py                   # FastAPI 入口 + CORS
 ```
 
-**7 个 GIS 工具**：
-- `feature_search`：专题检索（SQLQuery），支持 `region` 参数（auto/jingjin/changchun）
-- `spatial_query`：空间查询，支持 `feature_type` 过滤（point/line/polygon/all）
-- `buffer_analysis`：缓冲区分析（iServer `GeometryBufferAnalyst`，`analystParameter` 字段）
+**9 个 GIS 工具 + 1 个 RAG 工具**：
+- `feature_search`：专题检索（SQLQuery），支持 `region` 参数（auto/jingjin/changchun）。返回 data.features 含 lng/lat 坐标供 LLM 链式调用
+- `spatial_query`：空间查询，支持 `feature_type` 过滤（point/line/polygon/all）。拒绝 Point 几何，必须传 Polygon（来自 buffer_analysis）
+- `buffer_analysis`：缓冲区分析（iServer `GeometryBufferAnalyst`，`analystParameter` 字段）。返回 data.geometry_brief 供 spatial_query 链式调用
 - `overlay_analysis`：叠置分析（`DatasetOverlayAnalyst`）
 - `shortest_path`：最短路径（长春路网）
 - `service_area`：服务区分析（长春路网）
 - `fly_to_location`：地名解析 + 坐标返回
+- `online_route_planning`：在线路径规划（OSRM 公共服务，京津冀等非长春地区使用，失败降级为直线距离）
+- `mock_nearby_resources`：模拟周边资源点（仅当真实查询无结果时使用，前端用紫灰色系 + [模拟] 标签区分）
+- `rag_retrieval`：从 FAISS 知识库检索应急救援方案
 
 ---
 

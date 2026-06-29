@@ -179,7 +179,7 @@
 ### Task 10: 多智能体架构 - LangGraph StateGraph
 - **优先级**: P1
 - **依赖**: Task 3
-- **状态**: in_progress（编码完成，待用户测试）
+- **状态**: done
 - **描述**: 从单 Agent 升级为 Coordinator + 子 Agent 的 StateGraph
 - **实现说明**: 未使用 LangGraph StateGraph 编译，改用 async function 顺序调度实现「代码级路由」（spec 场景 3 要求），等价于 StateGraph 但流式输出更自然、调试更方便
 - **子任务**:
@@ -190,44 +190,110 @@
   - [x] 结果汇总节点（summarize，nodes/summarize.py）
   - [x] 步数上限保护（MAX_STEPS=5，coordinator.py）
   - [x] 状态图编译与测试（用 async function 等价实现，已通过 import 健康检查）
+  - [x] 双轨制路由：单一意图走单 Agent，mixed 走 Coordinator（避免简单任务额外 2 次 LLM 调用）
+  - [x] 闲聊跳过意图分类直接流式回答
 
 ### Task 11: 子 Agent 子图实现
 - **优先级**: P1
 - **依赖**: Task 10
-- **状态**: in_progress（编码完成，待用户测试）
+- **状态**: done
 - **描述**: 四个专业子 Agent 的 LangGraph 子图
 - **实现说明**: 用 create_react_agent 创建 4 个独立子 Agent，由 Coordinator 顺序调度；子 Agent 输出契约通过 SubAgentResult Pydantic 模型定义
 - **子任务**:
-  - [x] SearchAgent 子图（feature_search + spatial_query + fly_to）
+  - [x] SearchAgent 子图（feature_search + spatial_query + fly_to + mock_nearby_resources）
   - [x] AnalysisAgent 子图（buffer_analysis + overlay_analysis）
-  - [x] RouteAgent 子图（shortest_path + service_area）
+  - [x] RouteAgent 子图（shortest_path + service_area + online_route_planning）
   - [x] KnowledgeAgent 子图（rag_retrieval + 回答生成）
   - [x] 每个子图的输出契约验证（SubAgentResult 模型 + execute_sub_agent 事件流契约）
   - [x] 子图集成到 Coordinator 主图（coordinator.py 调用 execute_sub_agent）
+  - [x] _build_step_context 注入前序 summary 和关键数据（坐标、资源列表）作为子 Agent 上下文
 
 ### Task 12: 分步可视化增强
 - **优先级**: P1
 - **依赖**: Task 7, Task 11
-- **状态**: in_progress（编码完成，待用户测试）
+- **状态**: done
 - **描述**: 多步任务的分步地图标绘与进度展示
 - **子任务**:
   - [x] 每步 tool_result 实时推送（Coordinator SSE 流转发）
   - [x] 前端进度指示（第 X / 共 Y 步，AgentChatPanel.vue 顶部 workflow-bar）
   - [x] 不同工具结果图层叠加（橙色系样式不变，按 step 分组卡片显示）
   - [x] 步骤说明文字同步显示（step_start 事件携带 description）
-  - [ ] 应急场景演示测试："朝阳区地震，评估灾情并规划救援"（待用户测试）
+  - [x] 应急场景演示测试："朝阳区地震，评估灾情并规划救援"（5 步：定位→缓冲区→查医院→路径规划→知识检索，已通过测试）
+  - [x] 模拟数据紫灰色系视觉区分 + [模拟] 弹窗标签
 
 ### Task 13: 前端面板完善与体验优化
 - **优先级**: P1
 - **依赖**: Task 12
-- **状态**: in_progress（编码完成，待用户测试）
+- **状态**: done
 - **描述**: 完善对话面板细节体验
 - **子任务**:
   - [x] 消息气泡中的代码块/表格渲染（Markdown 支持，引入 markdown-it，utils/agent/markdown.js）
   - [x] 工具卡片点击展开详情（P0 已实现）
   - [x] 停止生成按钮（P0 已实现）
-  - [ ] 错误提示样式优化（保留 P0 实现，待用户评估）
-  - [ ] 响应式布局适配（保留 P0 实现，待用户评估）
+  - [x] 错误提示样式优化（保留 P0 实现）
+  - [x] 响应式布局适配（保留 P0 实现）
+
+---
+
+## P1 测试与修复（手动测试 + Bug 修复）
+
+> P1 主体开发完成、进入手动测试阶段后进行的改动。
+> P2 阶段开发前请先了解这些上下文，避免重复踩坑。
+
+### 严重 Bug 修复
+
+- **token 超限（865k）根因**：子 Agent ReAct 循环把 ToolResult 完整返回（含 GeoJSON）写进 message history，多次工具调用后 token 累积超出 LLM 上限。
+  - 修复：`ToolResult.to_dict()` 把 geojson 剥离到 `threading.local` 缓存，返回给 LLM 的 dict 中 `geojson=None`
+  - `graph.py` / `agents.py` 通过 `pop_pending_geojson()` 取出后通过 SSE 单独发给前端
+  - 完整 GeoJSON 不再进 LLM 上下文，只用于前端渲染
+
+- **路径规划起终点坐标错误**：`feature_search` 的 `data.features` 只有摘要（displayName、dataset），不含坐标。LLM 看不到实际坐标，编造坐标传给 `shortest_path`，导致路径只有 0.42km（实际应 2.16km）。
+  - 修复：`features_summary` 加入 `lng/lat`（从 `geojson_features` 提取 Point 坐标）
+  - 完整 geometry 仍保留在 `geojson` 字段供前端渲染（不进 LLM 上下文）
+
+- **复杂任务空间查询多余线/面要素**：朝阳区地震复杂任务中，`spatial_query` 的 `feature_type` 默认 `all`，查到 236 个要素（含 215 个线/面要素）。应急救援场景应该只查点要素。
+  - 修复：`_infer_feature_type_from_message` 加入应急救援关键词推断（救援/应急/医院/物资/资源/避难/消防/公安/受灾/灾情等）
+  - `SEARCH_PROMPT` 规则 11 明确要求应急救援场景 `spatial_query` 必须传 `feature_type="point"`
+
+### 中等问题修复
+
+- **SYSTEM_PROMPT 规则膨胀导致路径规划回归**：规则 2.2 从一行扩展为多行示例后，LLM 在路径规划场景也调 spatial_query + buffer_analysis + fly_to_location。
+  - 修复：精简为 8 条正交规则，规则 3 明确"路径规划只调 feature_search + 路径工具，禁止调 spatial_query/buffer_analysis/fly_to_location"
+  - **核心教训：规则必须正交不重叠，不能为某场景写多行示例**
+
+- **虚拟事件导致 LLM 无限循环**：spatial_query circle 模式返回的 geojson 含缓冲区 Feature，拆分出虚拟 buffer_analysis 事件后，LLM 以为系统自动做了缓冲区分析但自己没做，反复重试 spatial_query 导致无限循环（10+ 次）。
+  - 修复：去掉虚拟事件拆分，去掉 circle 模式，让 LLM 必须走真实 buffer_analysis → spatial_query 流程
+  - spatial_query 检测到 Point 几何直接返回错误，引导 LLM 先调 buffer_analysis 取 `data.geometry_brief`
+
+- **资源点排序优化**：复杂任务路径规划需选择距离受灾点最近的前 2 条资源点。
+  - 修复：`_build_step_context` 中按球面距离升序排序资源点，取前 2 条，距离标注在坐标列表中
+
+### 小问题修复
+
+- **summarize 节点首 token 延迟**：改用 `astream` 真流式而非 `ainvoke`，逐 token 推送给前端
+- **闲聊响应延迟**：闲聊类问题（问候/感谢/简单咨询）跳过意图分类直接流式回答
+- **变量名冲突**：features_summary 循环内用 `summary` 变量名覆盖外层字符串 `summary`，改名为 `feat`
+
+### 涉及文件
+
+| 文件 | 修改内容 |
+|------|---------|
+| `app/schemas/tool_result.py` | 新增 threading.local geojson 剥离机制（`pop_pending_geojson`） |
+| `app/tools/gis_tools.py` | feature_search 加坐标返回 / spatial_query 拒绝 Point + 去掉 circle 模式 / `_infer_feature_type_from_message` 加应急救援关键词 |
+| `app/agent/graph.py` | SYSTEM_PROMPT 精简为 8 条正交规则 / on_tool_end 去掉虚拟事件拆分，恢复直接发 tool_result |
+| `app/agent/sub_agents/agents.py` | on_tool_end 去掉虚拟事件拆分 / SEARCH_PROMPT 新增规则 11（应急救援 feature_type=point） |
+| `app/agent/coordinator.py` | `_build_step_context` 按距离排序资源点，取最近前 2 条 |
+| `app/agent/nodes/planner.py` | 任务规划输出适配新数据结构 |
+| `app/agent/state.py` | AgentState 字段补充 |
+
+### 测试验证
+
+| 场景 | 验证结果 |
+|------|---------|
+| "朝阳区地震，评估灾情并规划救援"（复杂任务） | ✅ 5 步全部走通，spatial_query 只返回 20 个点要素（1 县级市 + 19 乡镇），不再有线/面要素 |
+| "从南湖公园到省体育局怎么走？"（长春市路径规划） | ✅ feature_search 返回正确坐标（125.300561, 43.815469 → 125.349475, 43.837537），shortest_path 距离 2.16km |
+| "查一下东城区3km范围内的点要素"（缓冲区+空间查询） | ✅ 缓冲区分析独立显示，spatial_query 返回点要素，不再 token 超限 |
+| "XXX在哪"（专题检索） | ✅ feature_search 正常返回，地图标绘正确 |
 
 ---
 
