@@ -39,3 +39,10 @@ target/
 # 队友代码存档(仅参考,不纳入版本控制)
 .trae/docs/project/gis-practice.zip
 .trae/docs/project/gis-practice/
+
+# P0 阶段备份目录(仅参考,不纳入版本控制)
+agent-p0-comparison/
+
+# 临时测试文件
+.trae/docs/project/newnew.zip
+.trae/docs/images/
