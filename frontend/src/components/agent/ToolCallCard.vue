@@ -72,11 +72,16 @@ const TOOL_NAME_MAP = {
   feature_search: '专题检索',
   spatial_query: '空间查询',
   buffer_analysis: '缓冲区分析',
+  dual_buffer_analysis: '双缓冲区分析',
   overlay_analysis: '叠置分析',
   shortest_path: '最短路径',
   service_area: '服务区分析',
   fly_to_location: '地图定位',
   rag_retrieval: '知识检索',
+  online_route_planning: '在线路径规划',
+  mock_nearby_resources: '模拟资源生成',
+  pareto_resource_optimize: 'Pareto 资源优选',
+  aco_multi_vehicle_route: 'ACO 多车分配',
 }
 
 /** 展示名称：优先取映射，缺失时回退到原始名 */

@@ -54,6 +54,10 @@ async def stream_coordinator_events(
         return
 
     try:
+        # 清理上一次请求残留的 inner Polygon 缓存，避免跨请求误 fallback
+        from app.tools.gis_tools import clear_inner_polygon_context
+        clear_inner_polygon_context()
+
         # ===== 阶段 1: 意图分类 =====
         intent_result = await classify_intent(user_message)
         yield {
@@ -119,6 +123,10 @@ async def stream_coordinator_events(
             context = _build_step_context(step_results)
             full_description = f"{description}\n\n{context}" if context else description
 
+            # 提取前序步骤的 inner Polygon 到 gis_tools 线程级缓存，
+            # 当 LLM 传给 spatial_query 退化 Polygon 时自动 fallback（实测 LLM 自纠成功率仅 ~25%）
+            _set_inner_polygon_fallback(step_results)
+
             yield {
                 "event": "step_start",
                 "data": {
@@ -134,6 +142,8 @@ async def stream_coordinator_events(
             step_success = True
             step_geojson = None
             step_data_list: list[dict] = []  # Bug3 修复：改为 list，保留所有工具的 result
+            # 步骤1受灾中心标记 flag：只标记第一个含 Point 的 geojson（feature_search 返回）
+            disaster_center_marked = False
 
             async for sub_event in execute_sub_agent(agent_type, full_description):
                 ev_type = sub_event.get("type")
@@ -147,8 +157,20 @@ async def stream_coordinator_events(
                         },
                     }
                 elif ev_type == "tool_result":
-                    if sub_event.get("geojson"):
-                        step_geojson = sub_event["geojson"]
+                    geojson_to_send = sub_event.get("geojson")
+                    # 步骤1：受灾地点 Point 在事件转发前就标记 _role='disaster_center'，
+                    # 确保前端拿到的 geojson 已含标记，能正确染红。
+                    # 用 flag 控制只标记第一个含 Point 的 geojson（feature_search 结果）
+                    if (
+                        step_num == 1
+                        and geojson_to_send
+                        and not disaster_center_marked
+                        and _has_point_feature(geojson_to_send)
+                    ):
+                        _mark_disaster_center(geojson_to_send)
+                        disaster_center_marked = True
+                    if geojson_to_send:
+                        step_geojson = geojson_to_send
                     if sub_event.get("result"):
                         step_data_list.append(sub_event["result"])
                     if not sub_event.get("success", True):
@@ -160,7 +182,7 @@ async def stream_coordinator_events(
                             "tool_name": sub_event.get("tool_name", ""),
                             "success": sub_event.get("success", False),
                             "result": sub_event.get("result", {}),
-                            "geojson": sub_event.get("geojson"),
+                            "geojson": geojson_to_send,
                             "message": sub_event.get("message", ""),
                         },
                     }
@@ -168,6 +190,11 @@ async def stream_coordinator_events(
                     step_summary = sub_event.get("summary", "")
                     if not sub_event.get("success", True):
                         step_success = False
+
+            # 兜底：步骤1若因故未在事件流中标记（如 tool_result 无 geojson），
+            # 仍尝试在 step_results 备份中标记，保证后续步骤上下文能识别受灾中心
+            if step_num == 1 and step_geojson and not disaster_center_marked:
+                step_geojson = _mark_disaster_center(step_geojson)
 
             step_results.append({
                 "agent_type": agent_type,
@@ -274,6 +301,31 @@ def _get_field(task, field: str, default=""):
     return default
 
 
+def _set_inner_polygon_fallback(step_results: list[dict]):
+    """从前序步骤结果中提取 inner Polygon（受灾圈），补充注入到 gis_tools 线程级缓存。
+    当 LLM 传给 spatial_query 退化 Polygon 时，工具自动用此 Polygon fallback。
+
+    【重要】此函数不清理缓存（不调 clear）！dual_buffer_analysis 工具内部已经设置了
+    fallback（inner_geo），这里只是从 step_results 补充——如果工具设置的 fallback 丢了
+    （如 geojson 被 pop 走），这里从 step_results 恢复。清理在外层 stream_coordinator_events
+    开始时做，避免跨步骤误清。
+    """
+    from app.tools.gis_tools import set_inner_polygon_context
+    for r in step_results:
+        geojson = r.get("geojson")
+        if not geojson or not isinstance(geojson, dict):
+            continue
+        for f in geojson.get("features") or []:
+            if not isinstance(f, dict):
+                continue
+            props = f.get("properties") or {}
+            if props.get("_bufferRole") == "inner":
+                geom = f.get("geometry")
+                if geom and geom.get("type") == "Polygon":
+                    set_inner_polygon_context(geom)
+                    return
+
+
 def _build_step_context(step_results: list[dict]) -> str:
     """从前序步骤结果中提取关键信息（summary + 坐标 + 数据摘要），
     注入下一步子 Agent 的 description，修复子 Agent 间无法传递数据的缺陷。
@@ -321,13 +373,29 @@ def _build_step_context(step_results: list[dict]) -> str:
             data_summary = _extract_data_summary(data_list[0])
             if data_summary:
                 lines.append(f"数据: {data_summary}")
+            # 【单独行】inner_geometry_brief JSON 字符串，供 spatial_query 直接复制传给 geometry。
+            # 不放入逗号分隔的"数据:"行（JSON 内含逗号会干扰 LLM 解析）。
+            # 对齐 git HEAD 单缓冲区场景：LLM 直接读工具返回的 data.geometry_brief。
+            _add_inner_geometry_brief(lines, data_list[0])
         elif len(data_list) > 1:
             for j, data in enumerate(data_list, 1):
                 data_summary = _extract_data_summary(data)
                 if data_summary:
                     lines.append(f"工具{j}数据: {data_summary}")
+                _add_inner_geometry_brief(lines, data, prefix=f"工具{j}")
 
     return "\n".join(lines)
+
+
+def _add_inner_geometry_brief(lines: list, data: dict, prefix: str = ""):
+    """如果 data 含 inner_geometry_brief，以单独行的形式写入 lines。
+    单独行（而非混入逗号分隔的"数据:"行）的原因是 JSON 值内包含逗号，
+    LLM 在逗号分隔的上下文中难以准确识别 JSON 值的边界。
+    """
+    brief = data.get("inner_geometry_brief") if isinstance(data, dict) else None
+    if brief:
+        tag = f"{prefix}inner_geometry_brief" if prefix else "inner_geometry_brief"
+        lines.append(f"  {tag}: {brief}")
 
 
 def _extract_center_from_step(step: dict):
@@ -433,7 +501,6 @@ def _extract_coords_from_geojson(geojson, center=None) -> str:
             dist_map[id(f)] = d
 
     coords_list = []
-    polygon_geojson_list = []  # Bug2: 收集 Polygon 完整 GeoJSON
 
     for f in sorted_features:
         geom = f.get("geometry")
@@ -474,15 +541,13 @@ def _extract_coords_from_geojson(geojson, center=None) -> str:
                 if ring:
                     avg_lng = sum(p[0] for p in ring) / len(ring)
                     avg_lat = sum(p[1] for p in ring) / len(ring)
+                    # 双缓冲区：按 _bufferRole 标注角色（inner=受灾圈/outer=支援圈）
+                    props = f.get("properties") or {}
+                    role = props.get("_bufferRole", "")
+                    role_tag = f"[{role}]" if role else ""
                     coords_list.append(
-                        f'{name}{mock_tag}质心: {{"lng":{avg_lng:.6f},"lat":{avg_lat:.6f}}}'
+                        f'{name}{mock_tag}{role_tag}质心: {{"lng":{avg_lng:.6f},"lat":{avg_lat:.6f}}}'
                     )
-                    # 简化 Polygon（最多20个点），供 spatial_query 直接使用
-                    simplified = _simplify_polygon_ring(ring, 20)
-                    polygon_geojson_list.append({
-                        "type": "Polygon",
-                        "coordinates": [simplified],
-                    })
         except (IndexError, TypeError, ValueError):
             continue
 
@@ -492,28 +557,39 @@ def _extract_coords_from_geojson(geojson, center=None) -> str:
     if point_items and center:
         result = "[已按到受灾点距离从近到远排序，路径规划请优先取前2条] " + result
 
-    # Bug2: 追加完整 Polygon GeoJSON，LLM 可直接传给 spatial_query 的 geometry 参数
-    if polygon_geojson_list:
-        result += "\n  缓冲区Polygon(可直接传给spatial_query的geometry参数): "
-        result += json.dumps(polygon_geojson_list[0], ensure_ascii=False)
-
     return result
 
 
-def _simplify_polygon_ring(ring: list, max_points: int = 20) -> list:
-    """简化 Polygon 环，最多保留 max_points 个点（均匀采样），并保证环闭合。"""
-    if len(ring) <= max_points:
-        return [[round(p[0], 6), round(p[1], 6)] for p in ring]
-    step = len(ring) / max_points
-    simplified = []
-    for i in range(max_points):
-        idx = int(i * step)
-        p = ring[idx]
-        simplified.append([round(p[0], 6), round(p[1], 6)])
-    # 闭合环（首尾相同）
-    if simplified[0] != simplified[-1]:
-        simplified.append(simplified[0])
-    return simplified
+def _mark_disaster_center(geojson) -> dict:
+    """给步骤1 search 返回的第一个 Point feature 标记 _role='disaster_center'。
+    前端按此标记将受灾中心圆点染红，与 spatial_query 返回的普通点要素（琥珀色）区分。
+    双缓冲区场景下，受灾中心 Point 也是路径规划的终点。
+    """
+    if not geojson or not isinstance(geojson, dict):
+        return geojson
+    features = geojson.get("features") or []
+    for f in features:
+        if not isinstance(f, dict):
+            continue
+        geom = f.get("geometry")
+        if geom and geom.get("type") == "Point":
+            props = f.get("properties") or {}
+            props["_role"] = "disaster_center"
+            f["properties"] = props
+            break  # 只标记第一个 Point
+    return geojson
+
+
+def _has_point_feature(geojson) -> bool:
+    """判断 GeoJSON FeatureCollection 是否含至少一个 Point feature。
+    用于步骤1筛选含受灾地点 Point 的 geojson（跳过 fly_to_location 等无 geojson 的工具结果）。
+    """
+    if not geojson or not isinstance(geojson, dict):
+        return False
+    for f in geojson.get("features") or []:
+        if isinstance(f, dict) and f.get("geometry", {}).get("type") == "Point":
+            return True
+    return False
 
 
 def _extract_data_summary(data: dict) -> str:
@@ -534,6 +610,15 @@ def _extract_data_summary(data: dict) -> str:
         parts.append(f"resource_type={data['resource_type']}")
     if "bufferDistance" in data:
         parts.append(f"bufferDistance={data['bufferDistance']}m")
+    # 双缓冲区半径（dual_buffer_analysis 返回），供后续步骤 mock_nearby_resources 复用
+    if "inner_distance" in data:
+        parts.append(f"inner_distance={data['inner_distance']}m")
+    if "outer_distance" in data:
+        parts.append(f"outer_distance={data['outer_distance']}m")
+    # 受灾中心坐标，步骤4 mock_nearby_resources 的 center 参数 + 步骤5 路径规划终点
+    if "center" in data and isinstance(data["center"], dict):
+        c = data["center"]
+        parts.append(f"center={{\"lng\":{c.get('lng', 0)},\"lat\":{c.get('lat', 0)}}}")
     if "distance_km" in data:
         parts.append(f"distance_km={data['distance_km']}")
     if "duration_min" in data:

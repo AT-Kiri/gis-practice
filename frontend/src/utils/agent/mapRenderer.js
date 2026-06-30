@@ -30,6 +30,27 @@ const MOCK_COLORS = {
   lineDashArray: [2, 2],
 }
 
+/** 双缓冲区配色（dual_buffer_analysis 工具专用，按 _bufferRole 区分）
+ * inner 用深橙（受灾圈，危险），outer 用淡黄（支援圈，警戒），颜色差明显
+ * 避免与受灾中心点（红色）混淆
+ */
+const BUFFER_COLORS = {
+  inner: {  // 受灾圈（小），深橙色，在上层
+    fill: '#ea580c',     // orange-600
+    outline: '#9a3412',  // orange-800
+    fillOpacity: 0.50,
+  },
+  outer: {  // 支援圈（大），淡黄色，在下层
+    fill: '#fde68a',     // amber-200
+    outline: '#f59e0b',  // amber-500
+    fillOpacity: 0.20,
+  },
+}
+
+/** 受灾中心点配色（_role='disaster_center' 的 Point 用红色突出，与 spatial_query 普通点区分） */
+const DISASTER_CENTER_COLOR = '#ef4444'      // red-500
+const DISASTER_CENTER_STROKE = '#7f1d1d'     // red-900
+
 /** 已添加的 Agent 结果图层 ID 列表 */
 const addedLayerIds = []
 /** 已添加的 Agent 结果 Source ID 列表 */
@@ -38,6 +59,10 @@ const addedSourceIds = []
 const layerHandlers = []
 /** 当前弹窗实例 */
 let popup = null
+/** 受灾中心点图层 ID（_role='disaster_center' 所在的 circle layer）
+ * 后续点图层 addLayer 时以此为 beforeId，确保受灾中心点始终在所有点图层之上，
+ * 不会被后续 spatial_query 返回的点要素盖住红色填充 */
+let disasterCenterPointLayerId = null
 
 /**
  * 显示要素属性弹窗
@@ -93,6 +118,86 @@ function attachLayerInteractions(map, layerId) {
 }
 
 /**
+ * 为单个缓冲区角色（inner/outer）创建独立的 source + fill + outline 图层
+ * 双缓冲区场景专用：通过拆分独立图层确保 inner 一定盖在 outer 之上，
+ * 点击重叠区域优先命中 inner layer（Mapbox hit-testing 从上层开始）
+ * @param {Object} map - MapboxGL 地图实例
+ * @param {string} sourceId - 数据源 ID（已含角色后缀，如 agent-xxx-inner）
+ * @param {Array} features - 该角色的 Polygon features
+ * @param {Object} colors - 配色 { fill, outline, fillOpacity }
+ * @param {string|undefined} beforeId - 插入到该图层之前（z 顺序控制）
+ * @param {boolean} [skipClickHandler=false] - 跳过默认 click handler（dual_buffer 的 outer 用智能 handler）
+ * @returns {{fillId: string, outlineId: string}} 创建的图层 ID
+ */
+function _addSingleBufferLayerSet(map, sourceId, features, colors, beforeId, skipClickHandler = false) {
+  map.addSource(sourceId, {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features },
+  })
+  addedSourceIds.push(sourceId)
+
+  const fillId = `${sourceId}-fill`
+  map.addLayer({
+    id: fillId,
+    type: 'fill',
+    source: sourceId,
+    paint: {
+      'fill-color': colors.fill,
+      'fill-opacity': colors.fillOpacity,
+    },
+  }, beforeId)
+  addedLayerIds.push(fillId)
+  if (!skipClickHandler) {
+    attachLayerInteractions(map, fillId)
+  }
+
+  const outlineId = `${sourceId}-outline`
+  map.addLayer({
+    id: outlineId,
+    type: 'line',
+    source: sourceId,
+    paint: {
+      'line-color': colors.outline,
+      'line-width': AGENT_COLORS.lineWidth,
+      'line-opacity': AGENT_COLORS.lineOpacity,
+    },
+  }, beforeId)
+  addedLayerIds.push(outlineId)
+
+  return { fillId, outlineId }
+}
+
+/**
+ * 双缓冲区 outer-fill 的智能 click handler：
+ * 点击 outer 时先查询 inner 是否有要素在此位置，有则跳过（让 inner 的 handler 显示 popup），
+ * 无则显示 outer 的 popup。
+ *
+ * 解决问题：Mapbox 反向触发 layer click 事件（后注册的先触发），导致 outer-fill 的 handler
+ * 在 inner-fill 之后触发，覆盖了 inner 的 popup。outer 改用智能 handler 后，
+ * 重叠区域由 inner 接管，outer-only 环带区域仍显示 outer 信息。
+ * @param {Object} map - MapboxGL 地图实例
+ * @param {string} outerLayerId - outer fill 图层 ID
+ * @param {string} innerLayerId - inner fill 图层 ID
+ */
+function _attachOuterBufferClickHandler(map, outerLayerId, innerLayerId) {
+  const onClick = (e) => {
+    // 检查 inner 是否有要素在此位置（点击的是重叠区域，让 inner 接管）
+    const innerFeatures = map.queryRenderedFeatures(e.point, { layers: [innerLayerId] })
+    if (innerFeatures.length > 0) return
+    if (!e.features || !e.features.length) return
+    const f = e.features[0]
+    const lngLat = e.lngLat ? [e.lngLat.lng, e.lngLat.lat] : (f.geometry?.coordinates || [0, 0])
+    showFeaturePopup(lngLat, f.properties || {})
+  }
+  const onEnter = () => { map.getCanvas().style.cursor = 'pointer' }
+  const onLeave = () => { map.getCanvas().style.cursor = '' }
+  map.on('click', outerLayerId, onClick)
+  map.on('mouseenter', outerLayerId, onEnter)
+  map.on('mouseleave', outerLayerId, onLeave)
+  layerHandlers.push({ layerId: outerLayerId, onClick, onEnter, onLeave })
+}
+
+/**
  * 将 Agent 工具返回的 GeoJSON 渲染到地图上
  * @param {string} toolName - 工具名称
  * @param {Object} geojson - GeoJSON FeatureCollection
@@ -127,34 +232,69 @@ export function renderAgentResult(toolName, geojson, options = {}) {
 
   // 面图层
   if (hasPolygon) {
-    const fillId = `${sourceId}-fill`
-    map.addLayer({
-      id: fillId,
-      type: 'fill',
-      source: sourceId,
-      filter: ['==', '$type', 'Polygon'],
-      paint: {
-        // _mock=true 用紫灰色，否则用主题色
-        'fill-color': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.fill, AGENT_COLORS.fill],
-        'fill-opacity': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.fillOpacity, AGENT_COLORS.fillOpacity],
-      },
-    })
-    addedLayerIds.push(fillId)
-    attachLayerInteractions(map, fillId)
+    const isDualBuffer = toolName === 'dual_buffer_analysis'
+    // 显式 z 控制：把面层插在第一个现有 agent 点图层之前（保证点要素永远在面之上可见）
+    const firstAgentPointLayer = addedLayerIds.find(id => id.endsWith('-point'))
+    const beforeId = firstAgentPointLayer || undefined
 
-    const outlineId = `${sourceId}-outline`
-    map.addLayer({
-      id: outlineId,
-      type: 'line',
-      source: sourceId,
-      filter: ['==', '$type', 'Polygon'],
-      paint: {
-        'line-color': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.line, AGENT_COLORS.line],
-        'line-width': AGENT_COLORS.lineWidth,
-        'line-opacity': AGENT_COLORS.lineOpacity,
-      },
-    })
-    addedLayerIds.push(outlineId)
+    if (isDualBuffer) {
+      // 双缓冲区：拆成两个独立 source + layer
+      // 关键：先 addLayer outer（在下层），再 addLayer inner（在上层）
+      // 这样 inner 一定盖在 outer 上面，点击重叠区域优先命中 inner（悬浮窗显示受灾圈信息）
+      // outer 跳过默认 click handler，改用智能 handler：点击 outer 时先查 inner 是否有要素，
+      // 有则跳过（让 inner 接管），无则显示 outer popup。
+      // 解决 Mapbox 反向触发 click 事件导致 outer 覆盖 inner popup 的问题
+      const outerFeatures = features.filter(f => f.properties?._bufferRole === 'outer')
+      const innerFeatures = features.filter(f => f.properties?._bufferRole === 'inner')
+      let outerLayerIds = null
+      let innerLayerIds = null
+      if (outerFeatures.length) {
+        outerLayerIds = _addSingleBufferLayerSet(
+          map, `${sourceId}-outer`, outerFeatures, BUFFER_COLORS.outer, beforeId, true
+        )
+      }
+      if (innerFeatures.length) {
+        innerLayerIds = _addSingleBufferLayerSet(
+          map, `${sourceId}-inner`, innerFeatures, BUFFER_COLORS.inner, beforeId, false
+        )
+      }
+      // outer 用智能 click handler（重叠区域让 inner 接管）
+      if (outerLayerIds && innerLayerIds) {
+        _attachOuterBufferClickHandler(map, outerLayerIds.fillId, innerLayerIds.fillId)
+      } else if (outerLayerIds) {
+        // 只有 outer（无 inner），直接 attach 默认 handler
+        attachLayerInteractions(map, outerLayerIds.fillId)
+      }
+    } else {
+      // 普通面层：单 source + fill + outline，_mock 用紫灰色，否则用主题色
+      const fillId = `${sourceId}-fill`
+      map.addLayer({
+        id: fillId,
+        type: 'fill',
+        source: sourceId,
+        filter: ['==', '$type', 'Polygon'],
+        paint: {
+          'fill-color': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.fill, AGENT_COLORS.fill],
+          'fill-opacity': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.fillOpacity, AGENT_COLORS.fillOpacity],
+        },
+      }, beforeId)
+      addedLayerIds.push(fillId)
+      attachLayerInteractions(map, fillId)
+
+      const outlineId = `${sourceId}-outline`
+      map.addLayer({
+        id: outlineId,
+        type: 'line',
+        source: sourceId,
+        filter: ['==', '$type', 'Polygon'],
+        paint: {
+          'line-color': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.line, AGENT_COLORS.line],
+          'line-width': AGENT_COLORS.lineWidth,
+          'line-opacity': AGENT_COLORS.lineOpacity,
+        },
+      }, beforeId)
+      addedLayerIds.push(outlineId)
+    }
   }
 
   // 线图层
@@ -183,21 +323,48 @@ export function renderAgentResult(toolName, geojson, options = {}) {
   // 点图层
   if (hasPoint) {
     const pointId = `${sourceId}-point`
+    // 检查是否含受灾中心点（_role='disaster_center'）
+    const hasDisasterCenter = features.some(f => f.properties?._role === 'disaster_center')
+    // z 顺序控制：后续点图层插入到受灾中心点图层之前（确保受灾中心点始终在顶层，
+    // 不会被后续 spatial_query 返回的点要素盖住红色填充）
+    const pointBeforeId = (!hasDisasterCenter && disasterCenterPointLayerId) || undefined
+
     map.addLayer({
       id: pointId,
       type: 'circle',
       source: sourceId,
       filter: ['==', '$type', 'Point'],
       paint: {
-        'circle-radius': AGENT_COLORS.pointRadius,
-        'circle-color': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.point, AGENT_COLORS.point],
-        'circle-stroke-color': ['case', ['==', ['get', '_mock'], true], MOCK_COLORS.line, '#fff'],
+        // 受灾中心点(_role='disaster_center')用红色突出，与 spatial_query 普通点(琥珀色)区分
+        'circle-radius': [
+          'case',
+          ['==', ['get', '_role'], 'disaster_center'], 10,  // 受灾中心更大，确保视觉突出
+          ['==', ['get', '_mock'], true], MOCK_COLORS.pointRadius,
+          AGENT_COLORS.pointRadius,
+        ],
+        'circle-color': [
+          'case',
+          ['==', ['get', '_role'], 'disaster_center'], DISASTER_CENTER_COLOR,
+          ['==', ['get', '_mock'], true], MOCK_COLORS.point,
+          AGENT_COLORS.point,
+        ],
+        'circle-stroke-color': [
+          'case',
+          ['==', ['get', '_role'], 'disaster_center'], DISASTER_CENTER_STROKE,
+          ['==', ['get', '_mock'], true], MOCK_COLORS.line,
+          '#fff',
+        ],
         'circle-stroke-width': 2,
         'circle-opacity': 0.9,
       },
-    })
+    }, pointBeforeId)
     addedLayerIds.push(pointId)
     attachLayerInteractions(map, pointId)
+
+    // 记录受灾中心点图层 ID，后续点图层会插入到它之前（保持在顶层）
+    if (hasDisasterCenter) {
+      disasterCenterPointLayerId = pointId
+    }
 
     // 点标签
     const labelId = `${sourceId}-label`
@@ -312,6 +479,7 @@ export function clearAllAgentResults() {
 
   addedLayerIds.length = 0
   addedSourceIds.length = 0
+  disasterCenterPointLayerId = null
 }
 
 /**

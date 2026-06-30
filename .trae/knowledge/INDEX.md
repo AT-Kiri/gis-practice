@@ -16,6 +16,7 @@
 | 2026-06-26 | `20260626-data-dashboard` | 数据大屏模块（分级地图、灾害详情、气象监控、缓冲区联动分析、路径规划） | DataDashboard | ✅ 完成 |
 | 2026-06-28 | `20260626-multi-agent-gis` | 多智能体协同 GIS 应急助手（P0：单 Agent + 7 GIS 工具 + SSE 流式 + 地图自动渲染） | AgentChatPanel / agent-backend | ✅ P0 完成 |
 | 2026-06-30 | `20260626-multi-agent-gis` | P1：多智能体协同（Coordinator + 4 子 Agent）+ RAG 知识库 + 双轨制路由 + token 溢出修复 + 应急场景演示 | agent-backend / agent-chat-panel | ✅ P1 完成 |
+| 2026-06-30 | `20260626-multi-agent-gis` | P2：算法层（Pareto 多目标资源优选 + ACO 蚁群多车路径分配），注册到 RouteAgent | agent-backend | ✅ P2 Task 14 完成 |
 
 ---
 

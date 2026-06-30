@@ -24,8 +24,9 @@ SYSTEM_PROMPT = """你是京津冀城市综合防灾应急管理系统的 AI 应
 
 可用的 GIS 工具：
 - feature_search: 专题检索，按关键字搜索地理要素（京津冀：区县/乡镇/道路/河流等；长春市：公园/医院/学校等POI）。支持 region 参数指定搜索区域：auto(自动，先查京津冀，无结果回退查长春)、jingjin(仅京津冀)、changchun(仅长春)
-- spatial_query: 空间查询，在指定范围内查询地物。支持 feature_type 参数过滤要素类型（point/line/polygon/all），支持 region 参数选择数据源（jingjin=京津冀默认/changchun=长春）。geometry 参数传 GeoJSON 字符串
+- spatial_query: 空间查询，在指定范围内查询地物。支持 feature_type 参数过滤要素类型（point/line/polygon/all），支持 region 参数选择数据源（jingjin=京津冀默认/changchun=长春）。geometry 参数传 GeoJSON 字符串。
 - buffer_analysis: 缓冲区分析，分析某地点周边影响范围
+- dual_buffer_analysis: 双缓冲区分析，生成受灾圈(小)和支援圈(大)，用于应急分级响应。返回 inner_geometry_brief(受灾圈) 和 outer_geometry_brief(支援圈)。半径建议：地震 inner=3000/outer=8000，火灾 1000/3000，洪水 2000/5000。步骤3 spatial_query(geometry=inner_geometry_brief, feature_type=point) 查受灾范围内点要素；步骤4 mock_nearby_resources(center=受灾点, inner_radius=小半径, outer_radius=大半径) 在大-小环带生成模拟医院
 - overlay_analysis: 叠置分析，分析两个图层的叠加关系
 - shortest_path: 最短路径分析（仅长春路网），规划多点间最短路径
 - service_area: 服务区分析（仅长春路网），分析某点可达范围
@@ -102,8 +103,10 @@ async def stream_agent_events(user_message: str, session_id: str = "default") ->
 
     try:
         # 设置用户消息上下文，供 spatial_query 等工具推断 LLM 没传的参数（如 feature_type）
-        from app.tools.gis_tools import set_user_message_context
+        from app.tools.gis_tools import set_user_message_context, clear_inner_polygon_context
         set_user_message_context(user_message)
+        # 清理上一次请求残留的 inner Polygon 缓存，避免跨请求误 fallback
+        clear_inner_polygon_context()
 
         # 读取会话历史，拼接到当前消息前面（实现会话内短期记忆）
         history = get_history(session_id)
@@ -235,6 +238,12 @@ def _simplify_tool_input(tool_name: str, tool_input: dict) -> dict:
             except Exception:
                 pass
         return {"distance": tool_input.get("distance", 0), "geometry_type": geo_type}
+    elif tool_name == "dual_buffer_analysis":
+        # 双缓冲区分析，提取半径参数（center 是 {"lng":...,"lat":...} 格式）
+        return {
+            "inner_distance": tool_input.get("inner_distance", 0),
+            "outer_distance": tool_input.get("outer_distance", 0),
+        }
     elif tool_name == "shortest_path":
         pts = tool_input.get("points", [])
         if isinstance(pts, str):
@@ -265,8 +274,46 @@ def _simplify_tool_input(tool_name: str, tool_input: dict) -> dict:
         return {
             "resource_type": tool_input.get("resource_type", "hospital"),
             "count": tool_input.get("count", 5),
-            "radius": tool_input.get("radius", 5000),
+            "inner_radius": tool_input.get("inner_radius", 0),
+            "outer_radius": tool_input.get("outer_radius", 5000),
         }
+    elif tool_name == "spatial_query":
+        # spatial_query: geometry 可能很大，只展示要素类型、region、退化标记等关键字段
+        geo = tool_input.get("geometry")
+        geo_type, point_count, is_degenerate = "", 0, False
+        if isinstance(geo, dict):
+            geo_type = geo.get("type", "")
+            coords = geo.get("coordinates") or []
+            try:
+                ring = coords[0] if coords and isinstance(coords[0][0], (list, tuple)) else coords
+                point_count = len(ring) if ring else 0
+                if geo_type == "Polygon" and point_count >= 2:
+                    first = (ring[0][0], ring[0][1])
+                    is_degenerate = all(
+                        abs(p[0] - first[0]) < 1e-9 and abs(p[1] - first[1]) < 1e-9 for p in ring
+                    )
+            except (IndexError, TypeError, ValueError):
+                pass
+        elif isinstance(geo, str):
+            try:
+                g = json.loads(geo)
+                geo_type = g.get("type", "")
+                coords = g.get("coordinates") or []
+                ring = coords[0] if coords and isinstance(coords[0][0], (list, tuple)) else coords
+                point_count = len(ring) if ring else 0
+            except Exception:
+                pass
+        result = {
+            "feature_type": tool_input.get("feature_type", "all"),
+            "region": tool_input.get("region", "jingjin"),
+            "geometry_type": geo_type,
+            "point_count": point_count,
+        }
+        if is_degenerate:
+            result["degenerate_warning"] = "所有点坐标相同，查询将失效"
+        if tool_input.get("exclude_geometry"):
+            result["has_exclude_geometry"] = True
+        return result
     return {"raw": str(tool_input)[:200]}
 
 

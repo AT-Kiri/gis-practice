@@ -84,5 +84,5 @@ class SubAgentResult(BaseModel):
 
 # ==================== 常量 ====================
 
-MAX_STEPS = 5  # 最大执行步数保护
+MAX_STEPS = 8  # 最大执行步数保护（双缓冲区应急流程 7 步 +1 冗余）
 MAX_RETRY = 3  # JSON Schema 校验失败最大重试次数
