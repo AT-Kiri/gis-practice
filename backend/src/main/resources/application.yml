@@ -5,6 +5,30 @@ server:
 spring:
   application:
     name: emergency-backend
+  # MySQL 数据源 —— createDatabaseIfNotExist=true 确保数据库首次启动时自动创建
+  datasource:
+    url: jdbc:mysql://localhost:3306/emergency_db?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: t821777
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  # 启动时自动执行 schema.sql（建表）+ data.sql（种子数据）
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      data-locations: classpath:data.sql
+      continue-on-error: false
+  # Jackson 全局使用 snake_case 命名策略
+  # 与 MyBatis map-underscore-to-camel-case 形成对称：
+  # DB(snake_case) ↔ Entity(camelCase) ↔ JSON(snake_case)
+  # 与前端 mockData.js 的字段命名风格一致；单字段 code/message/data 不受影响
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
+# MyBatis 配置 —— 注解式 Mapper，下划线自动映射驼峰
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
 
 # iServer 服务配置 —— 所有地理数据服务和空间分析服务均通过 iServer 统一管理
 iserver:

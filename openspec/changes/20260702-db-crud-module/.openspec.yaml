@@ -1,0 +1,6 @@
+# OpenSpec 元数据
+schema: v1
+created: 2026-07-02
+change_id: 20260702-db-crud-module
+description: 数据库表格模块接入后端 MySQL + MyBatis 实现三表 CRUD
+parent: 20260626-data-dashboard

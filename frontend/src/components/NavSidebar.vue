@@ -17,18 +17,27 @@
     <!-- 菜单项列表 -->
     <div class="nav-menu">
       <div
-        v-for="item in menuItems"
+        v-for="(item, index) in menuItems"
         :key="item.key"
-        class="nav-item"
-        :class="{ 'nav-item--active': activeKey === item.key }"
-        @click="toggleItem(item.key)"
       >
-        <a-tooltip :title="item.label" placement="right">
-          <div class="nav-item-inner">
-            <component :is="item.icon" class="nav-item-icon" />
-          </div>
-        </a-tooltip>
-        <span class="nav-item-label">{{ item.label }}</span>
+        <div
+          v-if="item.group === 'database' && (index === 0 || menuItems[index - 1].group !== 'database')"
+          class="nav-group-title"
+        >
+          数据库
+        </div>
+        <div
+          class="nav-item"
+          :class="{ 'nav-item--active': activeKey === item.key }"
+          @click="toggleItem(item.key)"
+        >
+          <a-tooltip :title="item.label" placement="right">
+            <div class="nav-item-inner">
+              <component :is="item.icon" class="nav-item-icon" />
+            </div>
+          </a-tooltip>
+          <span class="nav-item-label">{{ item.label }}</span>
+        </div>
       </div>
 
       <!-- 弹性间距 -->
@@ -51,7 +60,8 @@
 import { SafetyOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons-vue'
 import {
   ToolOutlined, SearchOutlined, FileSearchOutlined,
-  LineOutlined, AppstoreOutlined, EyeOutlined, ApiOutlined, NodeIndexOutlined,
+  LineOutlined, AppstoreOutlined, EyeOutlined, ApiOutlined, NodeIndexOutlined, InboxOutlined,
+  BranchesOutlined, CloudOutlined,
 } from '@ant-design/icons-vue'
 
 const props = defineProps({
@@ -73,6 +83,9 @@ const menuItems = [
   { key: 'measure', label: '量算工具', icon: LineOutlined },
   { key: 'layer-manager', label: '图层管理', icon: AppstoreOutlined },
   { key: 'overview', label: '鹰眼视图', icon: EyeOutlined },
+  { key: 'coord-response', label: '协同处置', icon: BranchesOutlined, group: 'database' },
+  { key: 'warn-info', label: '预警主表', icon: CloudOutlined, group: 'database' },
+  { key: 'supply-dispatch', label: '物资调度', icon: InboxOutlined, group: 'database' },
 ]
 
 /**
@@ -237,5 +250,16 @@ function toggleItem(key) {
 .nav-item--bottom {
   margin-top: auto;
   padding-bottom: 8px;
+}
+
+/* 数据库分组标题 */
+.nav-group-title {
+  width: 100%;
+  margin: 12px 0 6px;
+  padding: 0 4px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
+  letter-spacing: 0.5px;
 }
 </style>

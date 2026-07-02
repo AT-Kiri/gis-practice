@@ -27,6 +27,21 @@ const routes = [
     name: 'new-big-screen',
     component: () => import('../views/NewBigScreenView.vue'),
   },
+  {
+    path: '/warn-info',
+    name: 'warn-info',
+    component: () => import('../views/WarnInfoView.vue'),
+  },
+  {
+    path: '/coord-response',
+    name: 'coord-response',
+    component: () => import('../views/CoordResponseView.vue'),
+  },
+  {
+    path: '/supply-dispatch',
+    name: 'supply-dispatch',
+    component: () => import('../views/SupplyDispatchView.vue'),
+  },
 ]
 
 /** 创建路由器实例 */

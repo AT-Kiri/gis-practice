@@ -69,6 +69,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useMapStore } from '../stores/map'
 import { ISERVER_URL, TILE_SIZE, getTileUrl } from '../utils/map'
 import NavSidebar from './NavSidebar.vue'
@@ -86,14 +87,29 @@ const store = useMapStore()
 const mapContainer = ref(null)
 const activeKey = ref(null)
 const layerPanelVisible = ref(false)
+const router = useRouter()
 
 let resizeObserver = null
 
 /**
  * 侧栏菜单切换回调
  * 图层管理器特殊处理：通过 v-model:visible 控制，不占用 activeKey
+ * 数据库表格模块（coord-response/warn-info/supply-dispatch）：触发路由跳转，不占用 activeKey
  */
 function onSidebarChange(key) {
+  // 数据库表格模块：触发路由跳转到对应视图
+  if (key === 'supply-dispatch') {
+    router.push('/supply-dispatch')
+    return
+  }
+  if (key === 'coord-response') {
+    router.push('/coord-response')
+    return
+  }
+  if (key === 'warn-info') {
+    router.push('/warn-info')
+    return
+  }
   if (key === 'layer-manager') {
     layerPanelVisible.value = !layerPanelVisible.value
     if (activeKey.value === 'layer-manager') {
