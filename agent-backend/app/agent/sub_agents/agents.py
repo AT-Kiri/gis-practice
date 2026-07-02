@@ -11,7 +11,7 @@ from langchain_core.messages import HumanMessage
 from app.services.llm_service import LLMService
 from app.tools.gis_tools import (
     feature_search, spatial_query, fly_to_location,
-    buffer_analysis, overlay_analysis,
+    buffer_analysis, dual_buffer_analysis, overlay_analysis,
     shortest_path, service_area,
     online_route_planning, mock_nearby_resources,
 )
@@ -53,14 +53,16 @@ ANALYSIS_PROMPT = """你是空间分析专家，专门负责缓冲区分析和�
 
 可用工具：
 - buffer_analysis: 对几何对象做缓冲区分析。参数 geometry（GeoJSON 字符串）和 distance（米）
+- dual_buffer_analysis: 双层缓冲区分析（应急分级响应专用）。参数 center（'{"lng":...,"lat":...}' JSON 字符串）、inner_distance（小缓冲区半径米）、outer_distance（大缓冲区半径米）。半径表：地震 3000/8000、火灾 1000/3000、洪水 2000/5000。返回 inner_geometry_brief（受灾圈）和 outer_geometry_brief（支援圈）
 - overlay_analysis: 对两个数据集做叠置分析
 
 执行规则：
 1. 如果任务需要坐标但没有提供，说明需要先获取坐标
 2. geometry 参数请传 JSON 字符串格式，如 '{"type":"Point","coordinates":[116.4,39.9]}'
 3. distance 参数单位是米
-4. 工具返回的 geojson 会自动渲染到地图上
-5. 执行完成后，总结分析结果（缓冲区面积、叠置要素数量等）"""
+4. 应急救援/灾害评估场景（地震/火灾/洪水）必须用 dual_buffer_analysis 做分级响应，不要用 buffer_analysis
+5. 工具返回的 geojson 会自动渲染到地图上
+6. 执行完成后，总结分析结果（缓冲区面积、叠置要素数量等）"""
 
 ROUTE_PROMPT = """你是路径规划专家，专门负责最短路径、服务区分析和资源调度优化。
 
@@ -110,7 +112,7 @@ def _build_sub_agents() -> dict:
         ),
         "analysis": create_react_agent(
             model=llm,
-            tools=[buffer_analysis, overlay_analysis],
+            tools=[buffer_analysis, dual_buffer_analysis, overlay_analysis],
             state_modifier=ANALYSIS_PROMPT,
         ),
         "route": create_react_agent(
