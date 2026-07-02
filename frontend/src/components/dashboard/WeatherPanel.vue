@@ -129,6 +129,7 @@ function onTableChange(pagination, filters, sorter) {
 const columns = [
   { title: '地区', dataIndex: 'countyName', key: 'countyName', width: 80, sorter: true },
   { title: '风险等级', dataIndex: 'riskLevel', key: 'riskLevel', width: 80, sorter: true },
+  { title: 'AHP评分', dataIndex: 'ahpScore', key: 'ahpScore', width: 70, sorter: true },
   { title: '大风', dataIndex: 'windForce', key: 'windForce', width: 65, sorter: true },
   { title: '降雨', dataIndex: 'rainfall', key: 'rainfall', width: 70, sorter: true },
   { title: '地震强度', dataIndex: 'earthquakeIntensity', key: 'earthquakeIntensity', width: 80, sorter: true },

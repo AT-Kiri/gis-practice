@@ -291,7 +291,7 @@ function openRoutePlanning(rescuePoint) {
 
 .panel-top {
   flex: 0 0 auto;
-  min-height: 200px;
+  min-height: 300px;
 }
 
 .panel-bottom {
