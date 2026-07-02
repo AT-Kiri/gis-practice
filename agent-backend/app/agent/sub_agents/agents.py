@@ -81,7 +81,7 @@ ROUTE_PROMPT = """你是路径规划专家，专门负责最短路径、服务�
 5. 工具返回的 geojson 会自动渲染到地图上
 6. 执行完成后，总结路径结果（距离、时间等）
 7. 如果任务要求"对多个资源点分别规划路径"，逐个调用 online_route_planning，每次 origin=资源点坐标, destination=受灾点坐标
-8. 【Pareto 优化】当有 2 个以上资源点且需要在距离和容量间权衡时，优先调用 pareto_resource_optimize 做多目标筛选，而非逐个规划路径。resources 参数需包含 name/lng/lat/distance_m/capacity 字段
+8. 【Pareto 优化】当前序步骤注入了 pareto_resources 单独行时，必须调用 pareto_resource_optimize(resources=该行 = 号后的完整 JSON 字符串, objectives=["distance_m","capacity"])，原样复制 JSON，禁止修改或重新生成。resources 参数需含 name/lng/lat/distance_m/capacity 字段。无 pareto_resources 行时，若有 2+ 资源点且需权衡距离与容量，也可手动构造 resources 调用
 9. 【ACO 多车分配】当有 2 个以上救援队且 2 个以上受灾点时，优先调用 aco_multi_vehicle_route 做整体最优分配，而非逐个规划。vehicles 和 targets 参数需包含 name/lng/lat 字段
 10. 算法工具的输出已包含最优方案和可视化，直接总结结果即可，不要重复规划"""
 

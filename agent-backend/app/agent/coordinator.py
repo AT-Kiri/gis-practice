@@ -368,6 +368,11 @@ def _build_step_context(step_results: list[dict]) -> str:
         if coords_text:
             lines.append(f"关键坐标: {coords_text}")
 
+        # 注入 pareto_resources JSON 数组（供 route 步骤调 pareto_resource_optimize）
+        # 仅在有 mock 支援资源点（2+ 个）时注入，LLM 可直接复制传给 resources 参数
+        if i > 1 and center:
+            _add_pareto_resources(lines, geojson, center)
+
         # 3. 数据摘要（遍历所有工具的 data，Bug3 修复）
         if len(data_list) == 1:
             data_summary = _extract_data_summary(data_list[0])
@@ -396,6 +401,48 @@ def _add_inner_geometry_brief(lines: list, data: dict, prefix: str = ""):
     if brief:
         tag = f"{prefix}inner_geometry_brief" if prefix else "inner_geometry_brief"
         lines.append(f"  {tag}: {brief}")
+
+
+def _add_pareto_resources(lines: list, geojson, center, prefix: str = ""):
+    """如果 geojson 含 mock 支援资源点（_mock=True 且 _role=support），
+    构造 pareto_resource_optimize 需要的 resources JSON 数组，以单独行注入。
+    LLM 可直接复制传给 pareto_resource_optimize 的 resources 参数。
+
+    与 _add_inner_geometry_brief 同模式：单独行避免 JSON 逗号与"数据:"行冲突。
+    capacity 字段由 mock_nearby_resources 生成（独立于 distance，确保 Pareto 冲突）。
+    distance_m 由受灾点到资源点的球面距离换算。
+    """
+    if not geojson or not isinstance(geojson, dict) or not center:
+        return
+    features = geojson.get("features") or []
+    resources = []
+    for f in features:
+        if not isinstance(f, dict):
+            continue
+        props = f.get("properties") or {}
+        if not props.get("_mock") or props.get("_role") != "support":
+            continue
+        geom = f.get("geometry")
+        if not geom or geom.get("type") != "Point":
+            continue
+        coords = geom.get("coordinates")
+        if not coords:
+            continue
+        try:
+            lng, lat = float(coords[0]), float(coords[1])
+            dist_m = round(_haversine_km(center[0], center[1], lng, lat) * 1000)
+            resources.append({
+                "name": props.get("_displayName", "资源点"),
+                "lng": lng,
+                "lat": lat,
+                "distance_m": dist_m,
+                "capacity": props.get("capacity", 0),
+            })
+        except (IndexError, TypeError, ValueError):
+            continue
+    if len(resources) >= 2:
+        tag = f"{prefix}pareto_resources" if prefix else "pareto_resources"
+        lines.append(f"  {tag}: {json.dumps(resources, ensure_ascii=False)}")
 
 
 def _extract_center_from_step(step: dict):

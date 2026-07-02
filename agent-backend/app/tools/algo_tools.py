@@ -140,9 +140,10 @@ async def pareto_resource_optimize(resources: str, objectives: str = '["distance
     # 补充默认容量（如果资源点没有 capacity 字段）
     for r in resources:
         if "capacity" not in r and "capacity" in objectives:
-            # 基于 distance 反推一个模拟容量（近的容量小，模拟冲突）
+            # 基于 distance 反推模拟容量（近的容量小，远的容量大，制造冲突）
+            # mock_nearby_resources 已主动生成 capacity，此兜底仅对真实数据无 capacity 的边缘场景生效
             dist = r.get("distance_m", 2000)
-            r["capacity"] = max(10, int(500 - dist / 10))
+            r["capacity"] = max(10, int(10 + dist / 10))
 
     # 1. 非支配排序
     fronts = _pareto_sort(resources, objectives)

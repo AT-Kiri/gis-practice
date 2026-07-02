@@ -1198,6 +1198,8 @@ async def mock_nearby_resources(center: str, resource_type: str = "hospital", co
         "rescue": "模拟救援队",
     }
     type_name = type_names.get(resource_type, "模拟资源点")
+    # 资源容量区间（独立随机生成，与距离不相关，确保 Pareto 多目标有真正的冲突）
+    capacity_ranges = {"hospital": (20, 200), "supply": (10, 100), "rescue": (15, 80)}
 
     lng, lat = center["lng"], center["lat"]
     lat_per_m = 1 / 111000
@@ -1226,6 +1228,7 @@ async def mock_nearby_resources(center: str, resource_type: str = "hospital", co
                 "_role": "support",  # 支援资源标记，前端可区分渲染
                 "type": resource_type,
                 "distance_from_center_m": round(dist, 0),
+                "capacity": random.randint(*capacity_ranges.get(resource_type, (20, 200))),
             },
         })
 
