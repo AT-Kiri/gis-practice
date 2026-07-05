@@ -20,13 +20,14 @@ const props = defineProps({
 
 const emit = defineEmits(['select-county'])
 
-// 灾害等级对应颜色
+// 灾害等级对应颜色（依据 earthquakeAhp.js DISASTER_LEVELS：
+//   SL 579-2012 + 国家地震应急预案）
+//   1=特别重大 红 / 2=重大 橙 / 3=较大 黄 / 4=一般 绿
 const LEVEL_COLORS = {
-  1: '#52c41a',
-  2: '#fadb14',
-  3: '#fa8c16',
-  4: '#f5222d',
-  5: '#a8071a',
+  1: '#e53e3e',
+  2: '#dd6b20',
+  3: '#d69e2e',
+  4: '#38a169',
 }
 
 let tooltipEl = null
@@ -78,17 +79,18 @@ function initLayers(map, data) {
   map.addSource('dashboard-counties', { type: 'geojson', data: geojson })
 
   // 底图圆点（默认无边框，点中时动态添加白色描边作为高亮）
+  // 圆点大小随等级递减：1 级最大（最严重），4 级最小（一般）
   map.addLayer({
     id: 'county-dot',
     type: 'circle',
     source: 'dashboard-counties',
     paint: {
       'circle-radius': ['step', ['to-number', ['get', 'disasterLevel']],
-        8, 1, 8, 2, 10, 3, 12, 4, 14, 5, 16],
+        8, 1, 14, 2, 12, 3, 10, 4, 8],
       'circle-color': ['step', ['to-number', ['get', 'disasterLevel']],
-        LEVEL_COLORS[1],
+        LEVEL_COLORS[4],
         1, LEVEL_COLORS[1], 2, LEVEL_COLORS[2],
-        3, LEVEL_COLORS[3], 4, LEVEL_COLORS[4], 5, LEVEL_COLORS[5]],
+        3, LEVEL_COLORS[3], 4, LEVEL_COLORS[4]],
       'circle-opacity': 0.9,
       // 默认无描边，点击后通过动态修改来显示高亮
       'circle-stroke-width': 0,
@@ -193,12 +195,14 @@ function registerInteractions(map) {
     map.setPaintProperty(targetLayer, 'circle-stroke-width', 3.5)
     map.setFilter(targetLayer, ['==', ['get', 'countyName'], name])
 
-    // 视角聚焦到该县区
+    // 视角聚焦到该县区（延迟到下一帧，让 setFilter 的 style 重新计算先完成）
     const coords = e.features[0].geometry.coordinates
-    map.flyTo({
-      center: coords,
-      zoom: 10,
-      duration: 1200,
+    requestAnimationFrame(() => {
+      map.flyTo({
+        center: coords,
+        zoom: 10,
+        duration: 1200,
+      })
     })
 
     emit('select-county', name)

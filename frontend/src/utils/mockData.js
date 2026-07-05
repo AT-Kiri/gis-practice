@@ -1,6 +1,11 @@
 /**
  * 数据大屏 - 模拟数据生成模块
- * 生成县区灾害数据、救援资源、物资点和气象数据
+ * 仅生成地震灾种数据，对齐 8 指标 DDI 模型
+ *
+ * 改造说明（20260705-earthquake-rescue-refactor）：
+ *  - 移除暴雨/大风/沙尘/强对流/洪水/火灾等 6 种非地震灾种
+ *  - 地震灾种数据字段对齐 8 指标 DDI 模型（earthquakeAhp.js）
+ *  - 县区列表、坐标、CRUD mock 数据保持不变
  */
 // ====== 京津冀县区列表 ======
 const COUNTIES = [
@@ -58,14 +63,58 @@ const COUNTY_COORDS = {
   '张北县': [114.720, 41.158],
 }
 
-// ====== 灾害类型 ======
-const DISASTER_TYPES = ['洪涝', '大风', '地震', '滑坡', '暴雨', '干旱', '冰雹']
-const RESCUE_TYPES = ['冲锋舟、沙袋', '大型机械、帐篷', '医疗队、担架', '挖掘机、生命探测仪', '排水泵、沙袋', '送水车、抗旱设备', '防雹网、保温帐篷']
+// ====== 地震灾种 4 级指标区间（来源 earthquakeAhp.js THRESHOLDS）======
+// Level 1: 特别重大（DDI ≥ 80）
+// Level 2: 重大（60 ≤ DDI < 80）
+// Level 3: 较大（40 ≤ DDI < 60）
+// Level 4: 一般（DDI < 40）
+const EARTHQUAKE_PROFILES = {
+  1: { // 特别重大
+    deaths: [200, 300], injured: [800, 1000], missing: [50, 100],
+    affected_pop: [80000, 100000], evacuated: [50000, 100000],
+    collapsed_houses: [5000, 10000], damaged_houses: [30000, 50000],
+    economic_loss: [500000, 1000000],
+  },
+  2: { // 重大
+    deaths: [100, 200], injured: [500, 800], missing: [20, 50],
+    affected_pop: [50000, 80000], evacuated: [20000, 50000],
+    collapsed_houses: [2000, 5000], damaged_houses: [15000, 30000],
+    economic_loss: [200000, 500000],
+  },
+  3: { // 较大
+    deaths: [30, 100], injured: [200, 500], missing: [5, 20],
+    affected_pop: [20000, 50000], evacuated: [5000, 20000],
+    collapsed_houses: [500, 2000], damaged_houses: [5000, 15000],
+    economic_loss: [50000, 200000],
+  },
+  4: { // 一般
+    deaths: [0, 30], injured: [50, 200], missing: [0, 5],
+    affected_pop: [5000, 20000], evacuated: [1000, 5000],
+    collapsed_houses: [100, 500], damaged_houses: [1000, 5000],
+    economic_loss: [10000, 50000],
+  },
+}
+
+// 等级分布权重：5% Ⅰ级 / 15% Ⅱ级 / 30% Ⅲ级 / 50% Ⅳ级
+const LEVEL_DISTRIBUTION = [
+  { level: 1, weight: 0.05 },
+  { level: 2, weight: 0.15 },
+  { level: 3, weight: 0.30 },
+  { level: 4, weight: 0.50 },
+]
+
+// 救援类型映射（按等级）
+const RESCUE_TYPES_BY_LEVEL = {
+  1: '生命探测仪、挖掘机、医疗队、帐篷、物资运输车',
+  2: '医疗队、担架、挖掘机、生命探测仪',
+  3: '医疗队、担架、生命探测仪',
+  4: '担架、医疗队',
+}
 
 // ====== 天气状况 ======
 const WEATHER_CONDITIONS = ['晴', '多云', '阴', '小雨', '中雨', '大雨', '暴雨', '雷阵雨', '雾', '小雪', '中雪', '大雪']
 
-import { buildAHPRiskMetrics } from './ahp.js'
+import { assessDisaster } from './earthquakeAhp.js'
 
 // ====== 工具函数 ======
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min }
@@ -76,123 +125,123 @@ function randFloat(min, max, decimals = 1) {
   return parseFloat((Math.random() * (max - min) + min).toFixed(decimals))
 }
 
+/**
+ * 根据权重数组随机选择地震等级
+ */
+function pickEarthquakeLevel() {
+  const r = Math.random()
+  let acc = 0
+  for (const { level, weight } of LEVEL_DISTRIBUTION) {
+    acc += weight
+    if (r <= acc) return level
+  }
+  return 4
+}
+
+/**
+ * 生成指定等级的地震 8 指标数据
+ */
+function generateEarthquakeIndicators(level) {
+  const profile = EARTHQUAKE_PROFILES[level] || EARTHQUAKE_PROFILES[4]
+  const data = {}
+  for (const key of Object.keys(profile)) {
+    const [min, max] = profile[key]
+    data[key] = rand(min, max)
+  }
+  return data
+}
+
+/**
+ * 生成县区灾害描述
+ */
+function buildDescription(county, level, ddi) {
+  if (level === 1) {
+    return `${county}发生特别重大地震灾害，DDI=${ddi}，房屋大面积倒塌，人员伤亡严重，需立即启动一级应急响应`
+  } else if (level === 2) {
+    return `${county}发生重大地震灾害，DDI=${ddi}，部分房屋倒塌，人员伤亡较大，需启动二级应急响应`
+  } else if (level === 3) {
+    return `${county}发生较大地震灾害，DDI=${ddi}，部分房屋受损，少量人员伤亡，启动三级应急响应`
+  } else {
+    return `${county}发生一般地震灾害，DDI=${ddi}，个别房屋受损，无重大人员伤亡，启动四级应急响应`
+  }
+}
+
 // ====== 主要生成函数 ======
 
 /**
- * 生成各县区灾害数据
+ * 生成各县区地震灾害数据
+ *
+ * 每个县区数据包含：
+ *   - 8 DDI 指标：deaths/injured/missing/affected_pop/evacuated/collapsed_houses/damaged_houses/economic_loss
+ *   - 评估结果：ddi（灾情综合指数）/ disasterLevel（1-4）/ disasterLevelName / bufferConfig
+ *   - 兼容字段：affectedPeople（= affected_pop）、rescuePersonnel、requiredRescueType、description
+ *
  * @returns {Object} Map<县区名, 灾害信息>
  */
 export function generateCountyDisasters() {
   const data = {}
-  COUNTIES.forEach((county, index) => {
-    const hasDisaster = index % 5 !== 0
-    const level = hasDisaster ? rand(1, 5) : 1
-    const disasterType = pick(DISASTER_TYPES)
-    const rainfall = randFloat(0, 180)
-    const windForce = rand(2, 14)
-    const earthquakeIntensity = randFloat(0, 6.5)
-    const affectedPeople = level >= 3 ? rand(500, 8000) : rand(50, 500)
-    const rescueCapacity = level >= 3 ? rand(20, 200) : rand(5, 20)
-    const ahpMetrics = buildAHPRiskMetrics({ rainfall, windForce, earthquakeIntensity, affectedPeople, rescueCapacity })
+  COUNTIES.forEach((county) => {
+    const level = pickEarthquakeLevel()
+    const indicators = generateEarthquakeIndicators(level)
+    const { ddi, level: levelInfo, bufferConfig } = assessDisaster(indicators)
 
     data[county] = {
       countyName: county,
       coords: COUNTY_COORDS[county] || [116.4 + randFloat(-0.5, 0.5), 39.9 + randFloat(-0.5, 0.5)],
-      disasterType: level >= 3 ? disasterType : '无',
-      disasterLevel: level,
-      rainfall,
-      windForce,
-      earthquakeIntensity,
-      rescuePersonnel: rescueCapacity,
-      affectedPeople,
-      rescueCapacity,
-      ahpScore: ahpMetrics.ahpScore,
-      ahpRiskLevel: ahpMetrics.ahpRiskLevel,
-      description: level >= 3
-        ? `${county}${disasterType === '洪涝' ? '部分地区积水严重，河道水位超警戒线' :
-           disasterType === '大风' ? '遭遇强风袭击，部分建筑物受损' :
-           disasterType === '地震' ? '发生地震，部分房屋倒塌，道路受损' :
-           disasterType === '滑坡' ? '山区出现滑坡隐患，部分道路中断' :
-           disasterType === '暴雨' ? '持续强降雨，低洼地区内涝' :
-           disasterType === '干旱' ? '持续高温少雨，农作物受旱严重' :
-           '出现冰雹天气，农作物和车辆受损'}`
-        : `${county}目前灾情平稳，无明显灾害影响`,
-      requiredRescueType: level >= 3 ? pick(RESCUE_TYPES) : '无',
-      // 救援点和物资点（只在有灾害的县区生成）
-      rescuePoints: level >= 2 ? generateRescuePoints(county, level) : [],
-      supplyPoints: level >= 2 ? generateSupplyPoints(county, level) : [],
+      // 灾种信息
+      disasterType: '地震',
+      disasterLevel: levelInfo.level, // 1-4
+      disasterLevelName: levelInfo.name, // 特别重大/重大/较大/一般
+      disasterLevelColor: levelInfo.color,
+      ddi,
+      // 8 DDI 指标
+      ...indicators,
+      // 兼容字段（DashboardMap tooltip / DisasterDetailPanel 旧字段）
+      affectedPeople: indicators.affected_pop,
+      rescuePersonnel: rand(50, 200 + level * 50),
+      requiredRescueType: RESCUE_TYPES_BY_LEVEL[level] || '担架、医疗队',
+      description: buildDescription(county, level, ddi),
+      // 旧 AHP 字段（兼容 WeatherPanel 排序）
+      ahpScore: ddi,
+      ahpRiskLevel: levelInfo.name,
+      // 缓冲区配置（供 BufferAnalysisModal 直接使用）
+      bufferConfig,
     }
   })
   return data
 }
 
 /**
- * 生成救援点
- */
-function generateRescuePoints(county, level) {
-  const coords = COUNTY_COORDS[county] || [116.4, 39.9]
-  const count = rand(1, Math.min(3, level))
-  const points = []
-  for (let i = 0; i < count; i++) {
-    points.push({
-      name: `${county}${['消防站', '应急救援中心', '武警驻地', '医疗救援站', '民兵训练基地'][i]}`,
-      coords: [coords[0] + randFloat(-0.02, 0.02, 4), coords[1] + randFloat(-0.02, 0.02, 4)],
-      personnel: rand(10, 50 + level * 30),
-      equipment: pick(['消防车3辆', '救护车2辆', '冲锋舟4艘', '挖掘机2台', '救援车5辆']),
-    })
-  }
-  return points
-}
-
-/**
- * 生成物资点
- */
-function generateSupplyPoints(county, level) {
-  const coords = COUNTY_COORDS[county] || [116.4, 39.9]
-  const count = rand(1, Math.min(2, Math.ceil(level / 2)))
-  const points = []
-  const supplyTypes = [
-    '饮用水50吨、食品30吨、帐篷200顶',
-    '沙袋5000个、救生衣1000件',
-    '医疗物资（急救包2000个、药品20箱）',
-    '折叠床500张、毛毯1000条、发电机20台',
-    '饮用水30吨、方便面5000箱、手电筒500个',
-  ]
-  for (let i = 0; i < count; i++) {
-    points.push({
-      name: `${county}${['物资储备库', '应急物资站', '救灾物资点'][i]}`,
-      coords: [coords[0] + randFloat(-0.02, 0.02, 4), coords[1] + randFloat(-0.02, 0.02, 4)],
-      supplies: pick(supplyTypes),
-    })
-  }
-  return points
-}
-
-/**
- * 生成气象数据
+ * 生成气象数据（保留 WeatherPanel 兼容字段，灾种仅地震）
+ *
+ * 字段说明：
+ *   - riskLevel / ahpScore / ahpRiskLevel：保留字段名以兼容 WeatherPanel
+ *   - disasterType：仅 '地震' 或 '—'
  */
 export function generateWeatherData() {
   return COUNTIES.map((county) => {
-    const riskLevels = ['低', '较低', '中', '高', '极高']
-    const riskIndex = rand(0, 4)
-    const rainfall = randFloat(0, 180)
-    const windForce = rand(2, 14)
-    const earthquakeIntensity = randFloat(0, 6.5)
+    const level = pickEarthquakeLevel()
+    const indicators = generateEarthquakeIndicators(level)
+    const { ddi, level: levelInfo } = assessDisaster(indicators)
+    const rainfall = randFloat(0, 50) // 地震场景下降雨减弱
+    const windForce = rand(2, 8)
+    const earthquakeIntensity = randFloat(3.0, 7.5)
 
-    const ahpMetrics = buildAHPRiskMetrics({ rainfall, windForce, earthquakeIntensity, affectedPeople: rand(100, 8000), rescueCapacity: rand(10, 200) })
+    // 风险等级（5 档，与 WeatherPanel 颜色映射保持一致）
+    const riskLevel = level === 1 ? '极高' : level === 2 ? '高' : level === 3 ? '中' : '较低'
 
     return {
       countyName: county,
-      riskLevel: ahpMetrics.ahpRiskLevel,
-      disasterType: riskIndex >= 3 ? pick(['洪涝', '大风', '地震', '暴雨']) : '—',
+      riskLevel,
+      disasterType: level <= 3 ? '地震' : '—',
       windForce,
       rainfall,
       earthquakeIntensity,
-      trappedPeople: riskIndex >= 3 ? rand(10, 300) : rand(0, 10),
-      ahpScore: ahpMetrics.ahpScore,
-      ahpRiskLevel: ahpMetrics.ahpRiskLevel,
-      availableSupplies: riskIndex >= 2
-        ? pick(['帐篷200顶、食品5吨', '沙袋3000个', '医疗包500个', '饮用水20吨'])
+      trappedPeople: level <= 3 ? rand(10, 300) : rand(0, 10),
+      ahpScore: ddi, // 兼容 WeatherPanel 字段名
+      ahpRiskLevel: levelInfo.name,
+      availableSupplies: level <= 3
+        ? pick(['帐篷200顶、食品5吨', '医疗包500个', '饮用水20吨'])
         : '充足',
       weatherHistory: generateWeatherHistory(),
       weatherForecast: generateWeatherForecast(),

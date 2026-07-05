@@ -1,0 +1,11 @@
+schema: 1
+created: 2026-07-05
+change_id: 20260705-earthquake-rescue-refactor
+title: 重构"监测-预警-联动"模块为地震灾害专属评估与救援流程
+parent: 20260626-data-dashboard
+description: |
+  将原"监测-预警-联动"三套独立 CRUD 视图（WarnInfoView/CoordResponseView/SupplyDispatchView）
+  重构为以地震灾害为核心的"灾情评估（AHP-DDI）+ 应急救援调度（5步流程）"一体化模块。
+  灾害评级依据 SL 579-2012 + 《国家地震应急预案》AHP 8 指标模型；
+  救援流程依据《国家地震应急预案》§4.3 5 步顺序；
+  双缓冲区依据 GB 51080-2015 / GB/T 44013-2024 按灾情等级分级配置。

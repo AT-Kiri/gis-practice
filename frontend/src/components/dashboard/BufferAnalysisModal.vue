@@ -11,72 +11,68 @@
     wrap-class-name="buffer-modal"
   >
     <div class="buffer-content">
-      <!-- 半径调节 -->
-      <div class="radius-control">
-        <span class="radius-label">缓冲区半径：<strong>{{ radius }} km</strong></span>
-        <a-slider
-          v-model:value="radius"
-          :min="1"
-          :max="50"
-          :step="1"
-          @afterChange="onRadiusChange"
-          class="radius-slider"
-        />
-      </div>
-
-      <!-- 分析结果 -->
-      <div v-if="!loading" class="result-section">
-        <!-- 救援人员 -->
-        <div class="result-group">
-          <div class="result-group-title">
-            <TeamOutlined /> 附近救援人员（{{ rescuePoints.length }}）
-          </div>
-          <div v-if="rescuePoints.length > 0" class="result-list">
-            <div v-for="(rp, i) in rescuePoints" :key="i" class="result-item">
-              <div class="item-info">
-                <span class="item-name">
-                  <span class="item-index">{{ i + 1 }}</span>
-                  {{ rp.name }}
-                </span>
-                <span class="item-detail">👤 {{ rp.personnel }} 人</span>
-                <span class="item-detail">🚒 {{ rp.equipment }}</span>
-              </div>
-              <a-button
-                type="primary"
-                size="small"
-                @click="onRoutePlan(rp)"
-                :disabled="!rp.coords"
-              >
-                救援
-              </a-button>
-            </div>
-          </div>
-          <div v-else class="empty-result">该范围内未找到救援人员</div>
+      <!-- 评估摘要 -->
+      <div v-if="assessment" class="summary-section">
+        <div class="summary-row">
+          <span class="label">DDI 综合指数</span>
+          <span class="value highlight">{{ assessment.ddi }}</span>
         </div>
-
-        <!-- 物资点 -->
-        <div class="result-group">
-          <div class="result-group-title">
-            <UnorderedListOutlined /> 可分配物资（{{ supplyPoints.length }}）
-          </div>
-          <div v-if="supplyPoints.length > 0" class="result-list">
-            <div v-for="(sp, i) in supplyPoints" :key="i" class="result-item">
-              <div class="item-info">
-                <span class="item-name">
-                  <span class="item-index">{{ i + 1 }}</span>
-                  {{ sp.name }}
-                </span>
-                <span class="item-detail">{{ sp.supplies }}</span>
-              </div>
-            </div>
-          </div>
-          <div v-else class="empty-result">该范围内未找到物资点</div>
+        <div class="summary-row">
+          <span class="label">灾情等级</span>
+          <a-tag :color="assessment.level.color">
+            {{ assessment.level.level }}级 {{ assessment.level.name }}
+          </a-tag>
+        </div>
+        <div class="summary-row">
+          <span class="label">缓冲区配置</span>
+          <span class="value">
+            内 {{ (assessment.bufferConfig.inner / 1000).toFixed(1) }} km
+            / 外 {{ (assessment.bufferConfig.outer / 1000).toFixed(1) }} km
+          </span>
+        </div>
+        <div class="summary-row">
+          <span class="label">支援点</span>
+          <span class="value">{{ supportPoints.length }} 个</span>
+        </div>
+        <div class="summary-row">
+          <span class="label">物资点</span>
+          <span class="value">{{ supplyPoints.length }} 个</span>
+        </div>
+        <div v-if="damagedPoints.length" class="summary-row">
+          <span class="label">已损毁点</span>
+          <span class="value danger">{{ damagedPoints.length }} 个</span>
         </div>
       </div>
 
-      <!-- 加载状态 -->
-      <div v-else class="loading-state">
-        <a-spin tip="正在分析..." />
+      <!-- 双缓冲区说明 -->
+      <div class="legend-section">
+        <div class="legend-item">
+          <span class="legend-color outer-color"></span>
+          <span>应急支援范围（{{ outerKm }} km）</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-color inner-color"></span>
+          <span>灾害影响范围（{{ innerKm }} km）</span>
+        </div>
+      </div>
+
+      <!-- 提示：缓冲区图层和支援点图层已常驻主地图（DataDashboardView.vue 顶层），
+           不再随弹窗关闭而销毁，方便在调度阶段继续查看 -->
+
+      <!-- 操作按钮 -->
+      <div class="action-section">
+        <a-button
+          type="primary"
+          danger
+          block
+          :disabled="!canStartRescue"
+          @click="onStartRescue"
+        >
+          🆘 启动 5 步救援调度
+        </a-button>
+        <p v-if="!canStartRescue" class="hint-text">
+          需先生成支援点（含消防/医院/物资库/避难场所）后才能启动调度
+        </p>
       </div>
     </div>
   </a-modal>
@@ -85,345 +81,160 @@
 <script setup>
 /**
  * 数据大屏 - 缓冲区联动分析弹窗
+ *
+ * 改造说明（20260705-earthquake-rescue-refactor）：
+ *  - 移除"用户输入半径"逻辑，改为接收父组件传入的 bufferConfig props
+ *  - 移除内/外圈简单平面坐标计算，改用 BufferZoneLayer 组件（haversine 距离 + 64 边近似圆）
+ *  - 新增内/外双圈叠加渲染（外圈橙 rgba(221,107,32,0.15) + 内圈红 rgba(229,62,62,0.25)）
+ *  - 新增 SupportPointLayer 集成（渲染支援点/物资点/已损毁点/受灾点）
+ *  - 移除原救援点/物资点列表（由 SupportPointLayer 在地图上展示）
+ *  - 新增"🆘 启动 5 步救援调度"按钮
+ *
  * @prop {Boolean} visible - 弹窗显隐
  * @prop {Object} map - MapboxGL 地图实例
- * @prop {Object} countyData - 选中县区的数据
+ * @prop {Object} assessment - 评估结果 { ddi, level, bufferConfig, details }
+ * @prop {Array|null} disasterCenter - 受灾点坐标 [lng, lat]
+ * @prop {Object|null} bufferConfig - 缓冲区配置 { inner, outer, innerColor, outerColor, name }
+ * @prop {Array} supportPoints - 支援点数组
+ * @prop {Array} supplyPoints - 物资点数组
+ * @prop {Array} damagedPoints - 已损毁点数组
  */
-import { ref, watch } from 'vue'
-import { TeamOutlined, UnorderedListOutlined } from '@ant-design/icons-vue'
-import { calcDistance } from '@/utils/map'
+import { computed } from 'vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
   map: { type: Object, default: null },
-  countyData: { type: Object, default: null },
+  assessment: { type: Object, default: null },
+  disasterCenter: { type: Array, default: null },
+  bufferConfig: { type: Object, default: null },
+  supportPoints: { type: Array, default: () => [] },
+  supplyPoints: { type: Array, default: () => [] },
+  damagedPoints: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['update:visible', 'route-planning'])
+const emit = defineEmits(['update:visible', 'start-rescue'])
 
-const radius = ref(15)  // 默认半径调大到 15km
-const loading = ref(false)
-const rescuePoints = ref([])
-const supplyPoints = ref([])
+const innerKm = computed(() => {
+  if (!props.bufferConfig) return '0.0'
+  return (props.bufferConfig.inner / 1000).toFixed(1)
+})
 
-// 缓冲区圆圈和标记点的图层 ID
-const CIRCLE_LAYER_ID = 'buffer-analysis-circle'
-const RESCUE_LAYER_ID = 'buffer-rescue-points'
-const SUPPLY_LAYER_ID = 'buffer-supply-points'
-let bufferTooltip = null
+const outerKm = computed(() => {
+  if (!props.bufferConfig) return '0.0'
+  return (props.bufferConfig.outer / 1000).toFixed(1)
+})
 
-// 监听弹窗打开 → 执行分析（关闭弹窗不清除地图标记，让结果可见）
-watch(
-  () => props.visible,
-  (open) => {
-    if (open && props.countyData) {
-      runAnalysis(radius.value)
-    }
-  },
-  { immediate: true }
-)
-
-/**
- * 执行缓冲区分析
- */
-function runAnalysis(r) {
-  loading.value = true
-  const data = props.countyData
-  if (!data) {
-    loading.value = false
-    return
-  }
-
-  // 模拟缓冲区分析：根据距离筛选救援点和物资点
-  const center = data.coords
-  rescuePoints.value = data.rescuePoints.filter((p) => {
-    const dist = calcDistance(center, p.coords)
-    return dist <= r
-  })
-  supplyPoints.value = data.supplyPoints.filter((p) => {
-    const dist = calcDistance(center, p.coords)
-    return dist <= r
-  })
-
-  // 渲染地图效果
-  renderBufferOnMap(center, r)
-
-  loading.value = false
-}
-
-/**
- * 在地图上渲染缓冲区和标记点
- */
-function renderBufferOnMap(center, r) {
-  const map = props.map
-  if (!map) return
-
-  // 先清除旧图层
-  clearMapLayers()
-
-  // 1. 缓冲区圆圈
-  const circlePoints = []
-  const steps = 64
-  for (let i = 0; i <= steps; i++) {
-    const angle = (i / steps) * 2 * Math.PI
-    const lat = center[1] + (r / 111.32) * Math.cos(angle)
-    const lon = center[0] + (r / (111.32 * Math.cos((center[1] * Math.PI) / 180))) * Math.sin(angle)
-    circlePoints.push([lon, lat])
-  }
-  circlePoints.push(circlePoints[0]) // 闭合
-
-  map.addSource('buffer-circle-src', {
-    type: 'geojson',
-    data: {
-      type: 'Feature',
-      geometry: { type: 'Polygon', coordinates: [circlePoints] },
-      properties: {},
-    },
-  })
-  map.addLayer({
-    id: CIRCLE_LAYER_ID,
-    type: 'fill',
-    source: 'buffer-circle-src',
-    paint: {
-      'fill-color': '#1890ff',
-      'fill-opacity': 0.12,
-      'fill-outline-color': 'rgba(24,144,255,0.6)',
-    },
-  })
-
-  // 2. 救援点（蓝色标记）
-  if (rescuePoints.value.length > 0) {
-    const rescueGeo = {
-      type: 'FeatureCollection',
-      features: rescuePoints.value.map((p) => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: p.coords },
-        properties: { name: p.name, personnel: p.personnel },
-      })),
-    }
-    map.addSource('buffer-rescue-src', { type: 'geojson', data: rescueGeo })
-    map.addLayer({
-      id: RESCUE_LAYER_ID,
-      type: 'circle',
-      source: 'buffer-rescue-src',
-      paint: {
-        'circle-radius': 8,
-        'circle-color': '#1890ff',
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#fff',
-        'circle-opacity': 0.8,
-      },
-    })
-  }
-
-  // 3. 物资点（橙色标记）
-  if (supplyPoints.value.length > 0) {
-    const supplyGeo = {
-      type: 'FeatureCollection',
-      features: supplyPoints.value.map((p) => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: p.coords },
-        properties: { name: p.name, supplies: p.supplies },
-      })),
-    }
-    map.addSource('buffer-supply-src', { type: 'geojson', data: supplyGeo })
-    map.addLayer({
-      id: SUPPLY_LAYER_ID,
-      type: 'circle',
-      source: 'buffer-supply-src',
-      paint: {
-        'circle-radius': 8,
-        'circle-color': '#fa8c16',
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#fff',
-        'circle-opacity': 0.8,
-      },
-    })
-  }
-
-  // 注册地图标记交互（悬浮 tooltip）
-  registerBufferInteraction(map)
-}
-
-/**
- * 注册缓冲区标记的鼠标交互
- */
-function registerBufferInteraction(map) {
-  // 复用 tooltip 元素
-  if (!bufferTooltip) {
-    bufferTooltip = document.createElement('div')
-    bufferTooltip.className = 'buffer-tooltip'
-    bufferTooltip.style.cssText = `
-      display: none; position: fixed; z-index: 40;
-      background: rgba(0,0,0,0.85); color: #fff;
-      padding: 7px 10px; border-radius: 6px;
-      font-size: 12px; line-height: 1.4;
-      pointer-events: none; white-space: nowrap;
-      border: 1px solid rgba(255,255,255,0.1);
-    `
-    document.body.appendChild(bufferTooltip)
-  }
-
-  // 救援点 tooltip
-  map.on('mouseenter', RESCUE_LAYER_ID, (e) => {
-    map.getCanvas().style.cursor = 'pointer'
-    const p = e.features[0].properties
-    bufferTooltip.innerHTML = `🚑 ${p.name} | 👤 ${p.personnel} 人`
-    bufferTooltip.style.display = 'block'
-  })
-  map.on('mousemove', RESCUE_LAYER_ID, (e) => {
-    bufferTooltip.style.left = `${e.originalEvent.clientX + 12}px`
-    bufferTooltip.style.top = `${e.originalEvent.clientY - 8}px`
-  })
-  map.on('mouseleave', RESCUE_LAYER_ID, () => {
-    map.getCanvas().style.cursor = ''
-    bufferTooltip.style.display = 'none'
-  })
-
-  // 物资点 tooltip
-  map.on('mouseenter', SUPPLY_LAYER_ID, (e) => {
-    map.getCanvas().style.cursor = 'pointer'
-    const p = e.features[0].properties
-    bufferTooltip.innerHTML = `📦 ${p.name}`
-    bufferTooltip.style.display = 'block'
-  })
-  map.on('mousemove', SUPPLY_LAYER_ID, (e) => {
-    bufferTooltip.style.left = `${e.originalEvent.clientX + 12}px`
-    bufferTooltip.style.top = `${e.originalEvent.clientY - 8}px`
-  })
-  map.on('mouseleave', SUPPLY_LAYER_ID, () => {
-    map.getCanvas().style.cursor = ''
-    bufferTooltip.style.display = 'none'
-  })
-}
-
-/**
- * 清除地图上的缓冲区相关图层
- */
-function clearMapLayers() {
-  const map = props.map
-  if (!map) return
-  const layers = [CIRCLE_LAYER_ID, RESCUE_LAYER_ID, SUPPLY_LAYER_ID]
-  const sources = ['buffer-circle-src', 'buffer-rescue-src', 'buffer-supply-src']
-  layers.forEach((id) => {
-    try { if (map.getLayer(id)) map.removeLayer(id) } catch (e) { /* ignore */ }
-  })
-  sources.forEach((id) => {
-    try { if (map.getSource(id)) map.removeSource(id) } catch (e) { /* ignore */ }
-  })
-}
-
-function onRadiusChange() {
-  runAnalysis(radius.value)
-}
+// 是否可启动调度：支援点至少 4 类齐全（消防/医院/物资库/避难场所）
+const canStartRescue = computed(() => {
+  if (!props.supportPoints || props.supportPoints.length === 0) return false
+  const requiredTypes = ['fire_station', 'hospital', 'supply_depot', 'shelter']
+  return requiredTypes.every((t) => props.supportPoints.some((p) => p.type === t))
+})
 
 function closeModal() {
   emit('update:visible', false)
 }
 
-function onRoutePlan(point) {
-  emit('route-planning', point)
+function onStartRescue() {
+  if (!canStartRescue.value) return
+  emit('start-rescue')
 }
-
-
 </script>
 
 <style scoped>
 .buffer-content {
   min-height: 200px;
-}
-
-.radius-control {
-  margin-bottom: 16px;
-}
-
-.radius-label {
-  color: rgba(255, 255, 255, 0.65);
-  font-size: 13px;
-}
-
-.radius-slider {
-  margin-top: 8px;
-}
-
-.result-section {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.result-group-title {
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.summary-section {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
 }
 
-.result-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.result-item {
+.summary-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
 
-.item-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.summary-row:last-child {
+  border-bottom: none;
 }
 
-.item-name {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.item-index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: rgba(24, 144, 255, 0.2);
-  color: #1890ff;
-  font-size: 11px;
-  font-weight: 700;
+.label {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
   flex-shrink: 0;
 }
 
-.item-detail {
+.value {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  text-align: right;
+}
+
+.highlight {
+  color: #1890ff;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.danger {
+  color: #ff4d4f;
+  font-weight: 600;
+}
+
+.legend-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+}
+
+.legend-color {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+}
+
+.outer-color {
+  background: rgba(221, 107, 32, 0.5);
+  border: 1px solid rgba(221, 107, 32, 0.8);
+}
+
+.inner-color {
+  background: rgba(229, 62, 62, 0.5);
+  border: 1px solid rgba(229, 62, 62, 0.8);
+}
+
+.action-section {
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.hint-text {
   color: rgba(255, 255, 255, 0.4);
   font-size: 11px;
-}
-
-.empty-result {
-  color: rgba(255, 255, 255, 0.3);
-  font-size: 12px;
-  padding: 12px 0;
+  margin-top: 6px;
   text-align: center;
-}
-
-.loading-state {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 150px;
 }
 </style>
 
