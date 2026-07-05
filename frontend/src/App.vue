@@ -53,6 +53,15 @@
             <DashboardOutlined />
             <span>监测-预警-联动</span>
           </a-button>
+          <a-button
+            type="text"
+            class="nav-btn"
+            :class="{ 'nav-btn--active': $route.name === 'earthquake-command' }"
+            @click="$router.push('/earthquake-command')"
+          >
+            <AlertOutlined />
+            <span>地震指挥</span>
+          </a-button>
           <a-divider type="vertical" style="border-color: rgba(255,255,255,0.15); height: 20px;" />
           <div class="header-status">
             <span class="status-dot" />
@@ -69,7 +78,7 @@
 </template>
 
 <script setup>
-import { SafetyCertificateOutlined, AppstoreOutlined, ThunderboltOutlined, DashboardOutlined, MonitorOutlined } from '@ant-design/icons-vue'
+import { SafetyCertificateOutlined, AppstoreOutlined, ThunderboltOutlined, DashboardOutlined, MonitorOutlined, AlertOutlined } from '@ant-design/icons-vue'
 </script>
 
 <style scoped>

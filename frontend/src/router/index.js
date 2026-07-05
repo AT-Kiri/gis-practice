@@ -42,6 +42,11 @@ const routes = [
     name: 'supply-dispatch',
     component: () => import('../views/SupplyDispatchView.vue'),
   },
+  {
+    path: '/earthquake-command',
+    name: 'earthquake-command',
+    component: () => import('../views/EarthquakeCommandView.vue'),
+  },
 ]
 
 /** 创建路由器实例 */
