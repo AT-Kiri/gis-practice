@@ -8,17 +8,64 @@
 
 ## 一、功能模块
 
-| 模块 | 说明 |
-|------|------|
-| 基本地图功能 | 全幅显示、缩放平移、鹰眼、距离/面积量算、图层管理 |
-| 空间查询 | 按绘制范围（点/矩形/圆）查询 POI，结果标绘与属性弹窗 |
-| 专题检索 | 关键字查询、行政级别（省/县/乡镇）分级检索 |
-| 缓冲区与叠置分析 | 辐射范围分析、土地利用叠置分析 |
-| 网络分析 | 最短路径分析、服务区分析（基于长春路网数据） |
-| 三维洪水模拟 | 3D 场景淹没分析展示 |
-| 数据看板 | 气象灾害预警、协同叫应、物资调度三表 CRUD 管理 |
-| AI 应急助手 | 多 Agent 协同的空间问答（Coordinator + 4 子 Agent + 11 GIS 工具 + RAG 知识库） |
-| 地震应急指挥 | AHP-DDI 8 指标灾情评估（录入 → 计算 → 4 级划分），双缓冲区分析（按等级动态半径），5 步救援调度（消防/医疗/物资/避难 4 路彩色路径） |
+系统按顶部导航分为 **5 大模块**：
+
+### 1. 数字大屏 `/new-big-screen`
+**气象灾害监测大屏**（NewBigScreenView），面向值班人员实时监控天气态势。
+- **KPI 指标卡**：大风强度（级）、降雨深度（mm）、温度（℃）、湿度（%），超阈值自动高亮警告
+- **气象趋势图**：过去 24h 风力/降雨/温度折线图
+- **系统状态**：实时时钟、运行状态指示灯
+
+### 2. 二维地图 `/`
+**系统核心主页面**（HomeView + SmMapViewer），集成 GIS 操作、数据管理与 AI 问答。左侧 NavSidebar 提供功能入口：
+
+#### 2.1 基础 GIS 操作（左侧工具栏，地图内嵌组件）
+| 功能 | 组件 | 说明 |
+|------|------|------|
+| 地图工具 | MapToolbar | 全幅显示、放大、缩小、平移 |
+| 鹰眼视图 | MapOverview | 小地图概览，拖拽快速定位 |
+| 量算工具 | MapMeasure | 距离量算、面积量算 |
+| 图层管理 | LayerManager | 控制各图层显隐与透明度 |
+| 空间查询 | SpatialQuery | 绘制点/矩形/圆查询 POI，结果标绘 + 属性弹窗 |
+| 专题检索 | FeatureSearch | 关键字搜索地物、行政级别（省/县/乡镇）分级检索 |
+| 缓冲区与叠置分析 | SpatialAnalysis | 缓冲区辐射范围分析、土地利用叠置分析 |
+| 网络分析 | NetworkAnalysis | 最短路径分析、服务区分析（基于长春路网数据） |
+
+#### 2.2 数据库 CRUD 管理（NavSidebar → "数据库"分组 → 独立路由页面）
+| 功能 | 路由 | 页面 | 表 |
+|------|------|------|----|
+| 预警主表 | `/warn-info` | WarnInfoView | `tb_warn_info` — 气象灾害预警录入/编辑/查询/删除 |
+| 协同处置 | `/coord-response` | CoordResponseView | `tb_coord_response` — 协同叫应记录管理 |
+| 物资调度 | `/supply-dispatch` | SupplyDispatchView | `tb_supply_dispatch` — 应急物资调度管理 |
+
+#### 2.3 AI 应急助手（AgentChatPanel 浮动面板，HomeView 内嵌）
+- **多 Agent 协同架构**：Coordinator 调度器 → 意图分类 → 任务规划 → 4 个子 Agent（search / analysis / route / knowledge）顺序执行 → 流式汇总输出
+- **12+ 工具**：feature_search / spatial_query / buffer_analysis / dual_buffer_analysis / overlay_analysis / shortest_path / service_area / fly_to_location / online_route_planning / mock_nearby_resources + Pareto 多目标优化 + ACO 蚁群路径分配
+- **RAG 知识库**：5 篇应急预案文档（地震/火灾/洪水/医疗救援/综合预案），FAISS 向量检索
+- **双模式**：单一意图 → 单 Agent（低延迟）；混合意图 → Coordinator 多 Agent 编排
+- **前端渲染**：工具返回的 GeoJSON 自动叠加到地图，受灾点红色标记，支援点琥珀色标记
+
+### 3. 三维洪水模拟 `/flood-simulation`
+**Cesium 3D 场景**（FloodSimulationView），演示积石山区域洪水淹没过程。
+- 淹没参数调节：高度（m）/ 速度（m/s）
+- 控制：开始模拟 / 暂停继续 / 重置
+- 实时水位动态上升效果
+
+### 4. 监测-预警-联动 `/data-dashboard`
+（原"数据大屏"改造，半屏面板布局：左侧地图 + 右侧页签切换）
+- **分级地图**（DashboardMap）：县级行政区灾害标记着色，点击选中目标县域
+- **气象监控**（WeatherPanel → 右侧"气象监控"页签）：实时气象数据（风力/降雨/温度/湿度）
+- **AHP 灾情评估**（DisasterDetailPanel → 右侧"灾情评估"页签）：选定县域的多指标层次分析评估
+- **一键救援**：在灾情评估面板触发 → 弹出缓冲区分析弹窗（BufferAnalysisModal）→ 确定后弹出 5 步救援调度弹窗（RoutePlanningModal）
+
+### 5. 地震指挥 `/earthquake-command`
+**地震应急指挥专页**（EarthquakeCommandView），面向地震场景的一站式指挥。
+- **震情概览**：区域、震级、时间、位置、应急等级（I~IV 级），盲区预警/未应答/物资缺口实时滚动
+- **组织层级树**：国家 → 京津冀联合指挥部 → 地市 → 区县 → 乡镇，折叠/展开
+- **AHP-DDI 灾情评估**：8 指标（地震强度/震源深度/人口密度/建筑脆弱性/道路通达性/医疗容量/物资储备/次生灾害风险），层次分析法计算 → 4 级划分
+- **双缓冲区分析**：受灾圈（小半径）+ 支援圈（大半径），按灾害等级动态调整半径
+- **救援调度**：5 步流程（建队伍→医疗→物资→交通→避难），4 路彩色路径渲染
+- **Pareto 多目标优化 + ACO 蚁群路径分配**：在距离与容量之间找 Pareto 最优解，ACO 多车路径分配
 
 ---
 
@@ -26,7 +73,7 @@
 
 | 层 | 技术 |
 |----|------|
-| 前端 | Vue 3.5 + Vite 8 + Ant Design Vue 4 + MapboxGL + `@supermap/iclient-mapboxgl` 11 + Pinia + Vue Router |
+| 前端 | Vue 3.5 + Vite 8 + Ant Design Vue 4 + Ant Design Vue Icons 7 + MapboxGL 1.13 + `@supermap/iclient-mapboxgl` 11.1 + Cesium + Pinia 3 + Vue Router 4 + Axios 1.7 + markdown-it 14 |
 | 后端（业务） | SpringBoot 3.4 + MyBatis 3 + MySQL 8（Java 17） |
 | 后端（Agent） | FastAPI + LangGraph + LangChain + DeepSeek-V3.2（硅基流动）+ FAISS |
 | GIS 服务 | SuperMap iServer 11i（地图/数据/空间分析/网络分析服务） |
@@ -38,49 +85,105 @@
 
 ```
 GIS-Practice/
-├── frontend/              # Vue3 前端
+├── frontend/                  # Vue3 前端
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── dashboard/    # 数据大屏组件（DisasterDetailPanel, BufferAnalysisModal 等）
-│   │   │   ├── earthquake/   # 地震应急组件（BufferZoneLayer, SupportPointLayer, RescueDispatchPanel）
-│   │   │   ├── ...
-│   │   ├── views/         # 页面视图（含 DataDashboardView 数据大屏、EarthquakeCommandView 地震指挥）
-│   │   ├── router/        # 路由配置（/data-dashboard 数据大屏等）
-│   │   ├── stores/        # Pinia 状态管理（map / agent）
-│   │   └── utils/         # 工具函数（request, earthquakeAhp, circlePolygon, haversine 等）
-│   ├── composables/       # Vue composables（useShortestPath 路径规划）
-│   └── vite.config.js     # 含 /iserver /api /agent-api 三组 proxy
+│   │   │   ├── dashboard/        # 数据大屏组件（DashboardMap, WeatherPanel, DisasterDetailPanel, BufferAnalysisModal, RoutePlanningModal）
+│   │   │   ├── earthquake/       # 地震应急组件（BufferZoneLayer, SupportPointLayer, RescueDispatchPanel）
+│   │   │   ├── agent/            # Agent 聊天组件（ChatMessage, ToolCallCard）
+│   │   │   ├── SmMapViewer.vue   # 核心地图组件
+│   │   │   ├── NavSidebar.vue    # 导航侧边栏（GIS 工具组 + "数据库"分组 CRUD 入口）
+│   │   │   ├── AgentChatPanel.vue# AI 聊天面板
+│   │   │   ├── MapToolbar.vue    # 地图工具栏
+│   │   │   ├── MapOverview.vue   # 鹰眼组件
+│   │   │   ├── MapMeasure.vue    # 量算组件
+│   │   │   ├── LayerManager.vue  # 图层管理
+│   │   │   ├── FeatureSearch.vue # 专题检索
+│   │   │   ├── SpatialQuery.vue  # 空间查询
+│   │   │   ├── SpatialAnalysis.vue # 缓冲区与叠置分析
+│   │   │   └── NetworkAnalysis.vue # 网络分析
+│   │   ├── views/             # 页面视图（对应顶部导航 5 大模块 + CRUD 子页）
+│   │   │   ├── NewBigScreenView.vue    # 【数字大屏】气象灾害监测大屏
+│   │   │   ├── HomeView.vue            # 【二维地图】核心地图页（GIS + Agent）
+│   │   │   ├── FloodSimulationView.vue # 【三维洪水模拟】Cesium 3D 淹没模拟
+│   │   │   ├── DataDashboardView.vue   # 【监测-预警-联动】综合监测评估
+│   │   │   ├── EarthquakeCommandView.vue # 【地震指挥】地震应急指挥专页
+│   │   │   ├── WarnInfoView.vue        # 【二维地图→数据库】预警主表 CRUD
+│   │   │   ├── CoordResponseView.vue   # 【二维地图→数据库】协同处置 CRUD
+│   │   │   └── SupplyDispatchView.vue  # 【二维地图→数据库】物资调度 CRUD
+│   │   ├── router/index.js  # 路由配置（9 条路由）
+│   │   ├── stores/           # Pinia 状态管理（map.js / agent.js）
+│   │   ├── composables/      # Vue composables（useShortestPath）
+│   │   └── utils/
+│   │       ├── request.js        # axios 封装
+│   │       ├── map.js            # 地图工具函数
+│   │       ├── ahp.js            # 通用 AHP 层次分析法
+│   │       ├── earthquakeAhp.js  # 地震 AHP-DDI 灾情评估
+│   │       ├── haversine.js      # 球面距离计算
+│   │       ├── circlePolygon.js  # 圆形 Polygon 生成
+│   │       ├── mockData.js       # 模拟数据生成
+│   │       ├── earthquakeNaming.js # 地震命名规则
+│   │       ├── generateEarthquakePoints.js # 地震点数据生成
+│   │       └── agent/
+│   │           ├── sse.js            # SSE 连接管理
+│   │           ├── markdown.js       # Markdown 渲染
+│   │           ├── mapRenderer.js    # GeoJSON 地图渲染
+│   │           └── changchunBasemap.js # 长春底图配置
+│   ├── composables/         # Vue composables（useShortestPath）
+│   ├── public/data/         # 静态地理数据（roads.geojson, buildings.geojson）
+│   └── vite.config.js       # 含 /iserver /api /agent-api 三组 proxy
 │
-├── backend/               # SpringBoot 业务后端（CRUD + 健康检查）
+├── backend/                   # SpringBoot 业务后端（CRUD + 健康检查）
 │   └── src/main/
 │       ├── java/com/gis/emergency/
-│       │   ├── controller/  # REST API（WarnInfo / CoordResponse / SupplyDispatch）
-│       │   ├── service/     # 业务层
+│       │   ├── controller/  # REST API（Health / WarnInfo / CoordResponse / SupplyDispatch）
+│       │   ├── service/     # 业务逻辑层
 │       │   ├── mapper/      # MyBatis 注解式 Mapper
-│       │   ├── entity/      # 实体类
-│       │   └── config/      # CORS、全局异常处理
+│       │   ├── entity/      # 实体类（WarnInfo / CoordResponse / SupplyDispatch）
+│       │   ├── common/      # 统一响应 R.java
+│       │   ├── config/      # CORS、全局异常处理、App 配置
+│       │   └── util/        # CoordConverter 坐标转换
 │       └── resources/
 │           ├── application.yml  # 数据库 + iServer 配置
 │           ├── schema.sql       # 建表脚本（启动自动执行，幂等）
-│           └── data.sql         # 种子数据（启动自动执行，INSERT IGNORE）
+│           └── data.sql         # 种子数据（18 条，INSERT IGNORE）
 │
-├── agent-backend/         # FastAPI Agent 后端（AI 智能问答）
+├── agent-backend/             # FastAPI Agent 后端（AI 智能问答）
 │   ├── app/
-│   │   ├── agent/         # LangGraph 多 Agent 编排
-│   │   │   ├── coordinator.py  # Coordinator 调度
-│   │   │   ├── sub_agents/     # 4 个子 Agent（search/analysis/route/knowledge）
-│   │   │   └── tools/          # 11 个 GIS 工具 + 算法工具
-│   │   ├── api/           # FastAPI 路由
-│   │   ├── services/      # LLM / RAG / iServer 客户端
-│   │   └── config.py      # 配置读取（.env 优先）
-│   ├── data/knowledge/    # RAG 知识库源文档（应急预案等 markdown）
-│   ├── .env.example       # 环境变量模板（含 API Key 配置说明）
+│   │   ├── agent/             # LangGraph 多 Agent 编排
+│   │   │   ├── coordinator.py    # Coordinator 主调度：意图→规划→代码级路由→子 Agent→汇总
+│   │   │   ├── graph.py          # 单 Agent 引擎（ReAct 模式，11 GIS 工具 + 2 算法工具）
+│   │   │   ├── state.py          # 状态管理
+│   │   │   ├── nodes/
+│   │   │   │   ├── intent.py     # 意图分类节点
+│   │   │   │   ├── planner.py    # 任务规划节点
+│   │   │   │   └── summarize.py  # 结果汇总节点（流式输出）
+│   │   │   ├── sub_agents/       # 4 个子 Agent（search/analysis/route/knowledge）
+│   │   │   └── tools/
+│   │   │       ├── gis_tools.py  # 11 个 GIS 工具（feature_search/spatial_query/buffer_analysis/dual_buffer_analysis/overlay_analysis/shortest_path/service_area/fly_to_location/online_route_planning/mock_nearby_resources）
+│   │   │       ├── algo_tools.py # 2 个算法工具（Pareto 多目标优化 + ACO 蚁群多车路径分配）
+│   │   │       └── rag_tools.py  # RAG 检索工具
+│   │   ├── api/                 # FastAPI 路由（agent / rag）
+│   │   ├── services/            # LLM / RAG / iServer / Session 客户端
+│   │   ├── schemas/             # Pydantic 模型（ToolResult）
+│   │   └── config.py            # 配置读取（.env 优先）
+│   ├── data/knowledge/          # RAG 知识库源文档（5 篇应急预案 markdown）
+│   ├── .env.example             # 环境变量模板（含 API Key 配置说明）
 │   └── requirements.txt
 │
-├── openspec/              # OpenSpec 设计文档（proposal/design/spec/tasks/checklist）
-├── .trae/                 # Trae IDE 规则、技能、工作流、知识库
-├── project-brief.md       # 项目概要
-└── AGENTS.md              # AI Agent 入口导航
+├── openspec/                    # OpenSpec 设计文档（proposal/design/spec/tasks/checklist）
+│   └── changes/
+│       ├── project-foundation/          # 项目基础框架
+│       ├── spatial-query/               # 空间查询
+│       ├── thematic-search/             # 专题检索
+│       ├── spatial-analysis/            # 缓冲区与叠置分析
+│       ├── 20260626-multi-agent-gis/    # AI 多智能体系统
+│       ├── 20260626-data-dashboard/     # 数据大屏
+│       ├── 20260702-db-crud-module/     # 数据库 CRUD 模块
+│       └── 20260705-earthquake-rescue-refactor/ # 地震应急指挥重构
+├── .trae/                      # Trae IDE 规则、技能、工作流、知识库
+├── project-brief.md            # 项目概要
+└── AGENTS.md                   # AI Agent 入口导航
 ```
 
 ---
@@ -339,8 +442,8 @@ npm install
 | 前缀 | 转发到 | 用途 |
 |------|--------|------|
 | `/iserver` | `http://localhost:8090` | iServer GIS 服务 |
-| `/api` | `http://localhost:8080` | SpringBoot 业务后端 |
-| `/agent-api` | `http://localhost:8001`（重写为 `/api`） | FastAPI Agent 后端 |
+| `/api` | `http://localhost:8080` | SpringBoot 业务后端（CRUD 接口） |
+| `/agent-api` | `http://localhost:8001`（重写为 `/api`） | FastAPI Agent 后端（AI 问答接口） |
 
 若你的后端服务端口不同，请修改 `vite.config.js` 中对应的 `target`。
 
@@ -351,6 +454,19 @@ npm run dev
 ```
 
 浏览器访问 `http://localhost:5173`。
+
+#### 4) 前端路由一览（对应顶部导航 5 大模块 + CRUD 子页）
+
+| 导航分组 | 路由路径 | 页面 | 说明 |
+|----------|----------|------|------|
+| **数字大屏** | `/new-big-screen` | NewBigScreenView | 气象灾害监测大屏（KPI + 趋势图） |
+| **二维地图** | `/` | HomeView | 核心地图页（GIS 操作 + NavSidebar + AI 助手） |
+| | `/warn-info` | WarnInfoView | 预警主表 CRUD（NavSidebar → 数据库） |
+| | `/coord-response` | CoordResponseView | 协同处置 CRUD（NavSidebar → 数据库） |
+| | `/supply-dispatch` | SupplyDispatchView | 物资调度 CRUD（NavSidebar → 数据库） |
+| **三维洪水模拟** | `/flood-simulation` | FloodSimulationView | Cesium 3D 淹没模拟 |
+| **监测-预警-联动** | `/data-dashboard` | DataDashboardView | 综合监测评估（地图 + 灾情 + 气象） |
+| **地震指挥** | `/earthquake-command` | EarthquakeCommandView | 地震应急指挥专页 |
 
 ---
 
@@ -413,6 +529,7 @@ npm run dev
 - 项目规范：见 [`.trae/rules/project_rules.md`](.trae/rules/project_rules.md)
 - Git 提交规范：`<type>: <描述>`，type 包括 `feat / fix / refactor / docs / style / chore`
 - 设计文档：`openspec/changes/<change-id>/` 下按 proposal → design → spec → tasks → checklist 组织
+- 单元测试：`frontend/src/utils/__tests__/` 下存放置工具函数单元测试（Vitest），含 earthquakeAhp / haversine / earthquakeNaming / generateEarthquakePoints 测试
 
 ---
 
