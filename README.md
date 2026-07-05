@@ -18,6 +18,7 @@
 | 三维洪水模拟 | 3D 场景淹没分析展示 |
 | 数据看板 | 气象灾害预警、协同叫应、物资调度三表 CRUD 管理 |
 | AI 应急助手 | 多 Agent 协同的空间问答（Coordinator + 4 子 Agent + 11 GIS 工具 + RAG 知识库） |
+| 地震应急指挥 | AHP-DDI 8 指标灾情评估（录入 → 计算 → 4 级划分），双缓冲区分析（按等级动态半径），5 步救援调度（消防/医疗/物资/避难 4 路彩色路径） |
 
 ---
 
@@ -39,11 +40,15 @@
 GIS-Practice/
 ├── frontend/              # Vue3 前端
 │   ├── src/
-│   │   ├── components/    # 功能组件（地图、Agent 聊天、分析面板等）
-│   │   ├── views/         # 页面视图（路由级别）
-│   │   ├── router/        # 路由配置
+│   │   ├── components/
+│   │   │   ├── dashboard/    # 数据大屏组件（DisasterDetailPanel, BufferAnalysisModal 等）
+│   │   │   ├── earthquake/   # 地震应急组件（BufferZoneLayer, SupportPointLayer, RescueDispatchPanel）
+│   │   │   ├── ...
+│   │   ├── views/         # 页面视图（含 DataDashboardView 数据大屏、EarthquakeCommandView 地震指挥）
+│   │   ├── router/        # 路由配置（/data-dashboard 数据大屏等）
 │   │   ├── stores/        # Pinia 状态管理（map / agent）
-│   │   └── utils/         # 工具函数（请求、SSE、地图渲染等）
+│   │   └── utils/         # 工具函数（request, earthquakeAhp, circlePolygon, haversine 等）
+│   ├── composables/       # Vue composables（useShortestPath 路径规划）
 │   └── vite.config.js     # 含 /iserver /api /agent-api 三组 proxy
 │
 ├── backend/               # SpringBoot 业务后端（CRUD + 健康检查）
