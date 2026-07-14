@@ -198,10 +198,10 @@ function resolveImportToWikiPath(importPath, sourceFile) {
   const wikiPathMap = [
     { pattern: /^frontend\/src\/components\/(.+)\.vue$/, target: 'pages/components/' },
     { pattern: /^frontend\/src\/views\/(.+)\.vue$/, target: 'pages/views/' },
-    { pattern: /^frontend\/src\/stores\/(.+)\.js$/, target: 'pages/services/' },
+    { pattern: /^frontend\/src\/stores\/(.+)\.js$/, target: 'pages/components/' },
     { pattern: /^agent-backend\/app\/api\/(.+)\.py$/, target: 'pages/apis/' },
-    { pattern: /^agent-backend\/app\/services\/(.+)\.py$/, target: 'pages/services/' },
-    { pattern: /^agent-backend\/app\/tools\/(.+)\.py$/, target: 'pages/services/' },
+    { pattern: /^agent-backend\/app\/services\/(.+)\.py$/, target: 'pages/components/' },
+    { pattern: /^agent-backend\/app\/tools\/(.+)\.py$/, target: 'pages/components/' },
     { pattern: /^agent-backend\/app\/agent\/(.+)\.py$/, target: 'pages/components/' },
     { pattern: /^agent-backend\/app\/agent\/nodes\/(.+)\.py$/, target: 'pages/components/' },
     { pattern: /^agent-backend\/app\/agent\/sub_agents\/(.+)\.py$/, target: 'pages/components/' },
@@ -211,7 +211,7 @@ function resolveImportToWikiPath(importPath, sourceFile) {
     { pattern: /^backend\/src\/main\/java\/com\/gis\/emergency\/controller\/(.+)Controller\.java$/, target: 'pages/apis/' },
     { pattern: /^backend\/src\/main\/java\/com\/gis\/emergency\/entity\/(.+)\.java$/, target: 'pages/entities/' },
     { pattern: /^backend\/src\/main\/java\/com\/gis\/emergency\/common\/R\.java$/, target: 'pages/entities/response-wrapper.md' },
-    { pattern: /^backend\/src\/main\/java\/com\/gis\/emergency\/service\/(.+)Service\.java$/, target: 'pages/services/' },
+    { pattern: /^backend\/src\/main\/java\/com\/gis\/emergency\/service\/(.+)Service\.java$/, target: 'pages/components/' },
   ];
 
   for (const map of wikiPathMap) {

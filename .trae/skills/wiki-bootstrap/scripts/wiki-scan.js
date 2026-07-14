@@ -3,20 +3,18 @@
  *
  * 用法：node wiki-scan.js [projectRoot] [--dry-run]
  *
- * 扫描规则（7 种页面类型）：
- * - frontend/src/components/*.vue → pages/components/{kebab}.md (type: component)
+ * 扫描规则（6 种页面类型）：
+ * - frontend/src/components/*.vue → pages/components/{kebab}.md (type: component, tech: vue)
  * - frontend/src/views/*.vue      → pages/views/{kebab}.md      (type: view)
+ * - frontend/src/stores/*.js       → pages/components/{kebab}.md (type: component, tech: store)
  * - agent-backend/app/api/*.py    → pages/apis/{kebab}.md        (type: api)
- * - agent-backend/app/services/*.py → pages/services/{kebab}.md    (type: service)
- * - agent-backend/app/tools/*.py    → pages/services/{kebab}.md    (type: service)
- * - agent-backend/app/agent/*.py   → pages/components/{kebab}.md (type: component)
+ * - agent-backend/app/services/*.py → pages/components/{kebab}.md (type: component, tech: python)
+ * - agent-backend/app/tools/*.py    → pages/components/{kebab}.md (type: component, tech: python)
+ * - agent-backend/app/agent/*.py   → pages/components/{kebab}.md (type: component, tech: fastapi)
  * - agent-backend/app/schemas/*.py  → pages/entities/{kebab}.md   (type: entity)
  * - backend/.../controller/*Controller.java → pages/apis/{kebab}.md (type: api)
  * - backend/.../entity/*.java     → pages/entities/{kebab}.md   (type: entity)
- * - backend/.../service/*Service.java → pages/services/{kebab}.md (type: service)
- *
- * ⚠️ 废弃目录（扫描后自动删除）：
- * stores/ tools/ schemas/ decisions/ descriptions/
+ * - backend/.../service/*Service.java → pages/components/{kebab}.md (type: component, tech: java)
  *
  * 注意：
  * - 跳过 node_modules/、dist/、.git/、.trae/
@@ -35,66 +33,82 @@ const pagesDir = path.join(wikiDir, 'pages');
 // ─── 配置 ───────────────────────────────────────────
 
 const SCAN_RULES = [
+  // Vue 组件
   {
     pattern: /^src[\\/]components[\\/](.+)\.vue$/,
     type: 'component',
+    tech: 'vue',
     targetDir: 'components',
     getTitle: (name) => name.replace(/([A-Z])/g, ' $1').trim(),
   },
+  // 路由页面
   {
     pattern: /^src[\\/]views[\\/](.+)\.vue$/,
     type: 'view',
     targetDir: 'views',
     getTitle: (name) => name.replace(/([A-Z])/g, ' $1').trim(),
   },
+  // Pinia Store
   {
     pattern: /^src[\\/]stores[\\/](.+)\.js$/,
-    type: 'service',
-    targetDir: 'services',
+    type: 'component',
+    tech: 'store',
+    targetDir: 'components',
     getTitle: (name) => name.replace(/([A-Z])/g, ' $1').trim(),
   },
+  // FastAPI API
   {
     pattern: /^app[\\/]api[\\/](.+)\.py$/,
     type: 'api',
     targetDir: 'apis',
     getTitle: (name) => `${name} API`,
   },
+  // Python 服务
   {
     pattern: /^app[\\/]services[\\/](.+)\.py$/,
-    type: 'service',
-    targetDir: 'services',
+    type: 'component',
+    tech: 'python',
+    targetDir: 'components',
     getTitle: (name) => name.replace(/([A-Z])/g, ' $1').trim(),
   },
+  // Python 工具
   {
     pattern: /^app[\\/]tools[\\/](.+)\.py$/,
-    type: 'service',
-    targetDir: 'services',
+    type: 'component',
+    tech: 'python',
+    targetDir: 'components',
     getTitle: (name) => name.replace(/([A-Z])/g, ' $1').trim(),
   },
+  // FastAPI Agent 核心
   {
     pattern: /^app[\\/]agent[\\/](.+)\.py$/,
     type: 'component',
+    tech: 'fastapi',
     targetDir: 'components',
     getTitle: (name) => name.replace(/([A-Z])/g, ' $1').trim(),
   },
   {
     pattern: /^app[\\/]agent[\\/]nodes[\\/](.+)\.py$/,
     type: 'component',
+    tech: 'fastapi',
     targetDir: 'components',
     getTitle: (name) => name.replace(/([A-Z])/g, ' $1').trim(),
   },
   {
     pattern: /^app[\\/]agent[\\/]sub_agents[\\/](.+)\.py$/,
     type: 'component',
+    tech: 'fastapi',
     targetDir: 'components',
     getTitle: (name) => name.replace(/([A-Z])/g, ' $1').trim(),
   },
+  // Schema → entity
   {
     pattern: /^app[\\/]schemas[\\/](.+)\.py$/,
     type: 'entity',
     targetDir: 'entities',
     getTitle: (name) => name.replace(/([A-Z])/g, ' $1').trim(),
   },
+  // 配置 → concept
   {
     pattern: /^app[\\/]config\.py$/,
     type: 'concept',
@@ -102,25 +116,30 @@ const SCAN_RULES = [
     fixedName: 'app-config',
     getTitle: () => '应用配置',
   },
+  // FastAPI 主入口
   {
     pattern: /^app[\\/]main\.py$/,
     type: 'component',
+    tech: 'fastapi',
     targetDir: 'components',
     fixedName: 'fastapi-main',
-    getTitle: () => 'FastAPI 主入口',
+    getTitle: () => 'FastAPI 主入口 main',
   },
+  // Java Controller → api
   {
     pattern: /^src[\\/]main[\\/]java[\\/].+[\\/]controller[\\/](.+)Controller\.java$/,
     type: 'api',
     targetDir: 'apis',
     getTitle: (name) => `${name} API`,
   },
+  // Java Entity → entity
   {
     pattern: /^src[\\/]main[\\/]java[\\/].+[\\/]entity[\\/](.+)\.java$/,
     type: 'entity',
     targetDir: 'entities',
     getTitle: (name) => name.replace(/([A-Z])/g, ' $1').trim(),
   },
+  // Java 通用响应 → entity
   {
     pattern: /^src[\\/]main[\\/]java[\\/].+[\\/]common[\\/]R\.java$/,
     type: 'entity',
@@ -128,16 +147,19 @@ const SCAN_RULES = [
     fixedName: 'response-wrapper',
     getTitle: () => '统一响应 R<T>',
   },
+  // Java DTO → entity
   {
     pattern: /^src[\\/]main[\\/]java[\\/].+[\\/]dto[\\/](.+)DTO\.java$/,
     type: 'entity',
     targetDir: 'entities',
     getTitle: (name) => `${name} DTO`,
   },
+  // Java Service → component (tech: java)
   {
     pattern: /^src[\\/]main[\\/]java[\\/].+[\\/]service[\\/](.+)Service\.java$/,
-    type: 'service',
-    targetDir: 'services',
+    type: 'component',
+    tech: 'java',
+    targetDir: 'components',
     getTitle: (name) => name.replace(/([A-Z])/g, ' $1').trim(),
   },
 ];
@@ -155,7 +177,6 @@ function toKebabCase(str) {
 }
 
 function toReadableTitle(name) {
-  // BufferAnalysisModal → Buffer Analysis Modal
   return name
     .replace(/([A-Z])/g, ' $1')
     .replace(/^./, (c) => c.toUpperCase())
@@ -184,9 +205,7 @@ function findMatchingRule(filePath, relativePath) {
   for (const rule of SCAN_RULES) {
     const match = relativePath.match(rule.pattern);
     if (match) {
-      // 支持固定名（如 response-wrapper）和捕获组名
       const rawName = rule.fixedName || match[1] || '';
-      // 将路径分隔符替换为 -，然后每个部分转 kebab-case
       const name = rule.fixedName || rawName.split(/[\\/]/).map(toKebabCase).join('-');
       return {
         rule,
@@ -199,9 +218,10 @@ function findMatchingRule(filePath, relativePath) {
 }
 
 function generateFrontmatter(meta) {
+  let techLine = meta.tech ? `\ntech: ${meta.tech}` : '';
   return `---
 title: ${meta.title}
-type: ${meta.type}
+type: ${meta.type}${techLine}
 status: draft
 created: ${meta.date}
 updated: ${meta.date}
@@ -237,15 +257,14 @@ function main() {
     uncertain: [],
   };
 
-  // 确保目录存在（7 种页面类型）
+  // 确保目录存在（6 种页面类型）
   if (!dryRun) {
-    const dirs = ['components', 'views', 'entities', 'apis', 'flows', 'concepts', 'services'];
+    const dirs = ['components', 'views', 'entities', 'apis', 'flows', 'concepts'];
     for (const d of dirs) {
       fs.mkdirSync(path.join(pagesDir, d), { recursive: true });
     }
   }
 
-  // 扫描 frontend、backend 和 agent-backend
   const scanDirs = [
     path.join(projectRoot, 'frontend'),
     path.join(projectRoot, 'backend'),
@@ -260,7 +279,6 @@ function main() {
   }
 
   for (const filePath of allFiles) {
-    // 计算相对路径（相对于 frontend 或 backend）
     let relativePath = '';
     if (filePath.includes(`${path.sep}frontend${path.sep}`)) {
       relativePath = filePath.split(`${path.sep}frontend${path.sep}`)[1];
@@ -276,25 +294,22 @@ function main() {
     const { rule, name, title } = match;
     const targetFile = path.join(pagesDir, rule.targetDir, `${name}.md`);
 
-    // 跳过已存在
     if (fs.existsSync(targetFile)) {
       stats.skipped++;
       continue;
     }
 
-    // 记录统计
     stats.rules[rule.targetDir] = (stats.rules[rule.targetDir] || 0) + 1;
 
-    // 构建 meta
     const sourceRelative = filePath.replace(projectRoot + path.sep, '').replace(/\\/g, '/');
     const meta = {
       title,
       type: rule.type,
+      tech: rule.tech || null,
       date: today(),
       sourcePath: sourceRelative,
     };
 
-    // 生成 frontmatter
     const content = generateFrontmatter(meta);
 
     if (!dryRun) {
@@ -305,22 +320,6 @@ function main() {
     console.log(`  ✓ ${rule.targetDir}/${name}.md ← ${sourceRelative}`);
   }
 
-  // 清理废弃目录
-  const DEPRECATED_DIRS = ['stores', 'tools', 'schemas', 'decisions', 'descriptions'];
-  for (const d of DEPRECATED_DIRS) {
-    const dirPath = path.join(pagesDir, d);
-    if (fs.existsSync(dirPath)) {
-      const files = fs.readdirSync(dirPath);
-      if (files.length === 0) {
-        if (!dryRun) {
-          fs.rmdirSync(dirPath);
-          console.log(`  🗑️  删除废弃目录: pages/${d}/`);
-        }
-      }
-    }
-  }
-
-  // 输出统计
   console.log(`\n${dryRun ? '[DRY RUN] ' : ''}扫描完成`);
   console.log(`  创建: ${stats.created}`);
   console.log(`  跳过（已存在）: ${stats.skipped}`);

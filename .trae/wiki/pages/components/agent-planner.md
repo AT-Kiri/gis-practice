@@ -8,7 +8,7 @@ tags: [component, agent, planner, multi-agent, task-decomposition]
 
 references:
   - components/agent-coordinator.md
-  - components/agent-state.md
+  - pages/components/agent-store
   - components/agent-sub-agents.md
 
 source:

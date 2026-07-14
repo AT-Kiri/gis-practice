@@ -8,7 +8,7 @@ tags: [component, agent, intent, nlp, llm]
 
 references:
   - components/agent-coordinator.md
-  - components/agent-state.md
+  - pages/components/agent-store
 
 source:
   - agent-backend/app/agent/nodes/intent.py

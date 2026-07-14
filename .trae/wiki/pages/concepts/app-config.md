@@ -10,7 +10,7 @@ references:
   - components/fastapi-main.md
 
 related:
-  - services/llm-service.md
+  - components/llm.md
 
 source:
   - agent-backend/app/config.py

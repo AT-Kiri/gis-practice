@@ -7,9 +7,10 @@ updated: 2026-07-10
 tags: [component, agent, coordinator, multi-agent, nlp, gis]
 
 references:
-  - apis/agent-api.md
-  - components/agent-sub-agents.md
-  - components/agent-state.md
+  - pages/components/agent-store
+  - pages/components/agent-intent
+  - pages/components/agent-planner
+  - pages/components/agent-summarize
 
 related:
   - components/fastapi-main.md

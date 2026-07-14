@@ -4,18 +4,18 @@ type: view
 status: stable
 created: 2026-07-10
 updated: 2026-07-10
-tags: [view, dashboard, monitor, warning, response]
-
+tags: []
 references:
   - pages/components/dashboard-dashboard-map.md
   - pages/components/dashboard-weather-panel.md
   - pages/views/warn-info-view.md
   - pages/views/coord-response-view.md
   - pages/views/supply-dispatch-view.md
-
+  - pages/components/dashboard-disaster-detail-panel.md
+  - pages/components/dashboard-buffer-analysis-modal.md
+  - pages/components/dashboard-route-planning-modal.md
 source:
   - frontend/src/views/DataDashboardView.vue
-
 summary: 监测-预警-联动主页，包含气象预警、协同叫应、物资调度、数据看板四大板块
 ---
 

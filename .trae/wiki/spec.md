@@ -5,7 +5,7 @@
 ```yaml
 ---
 title: 页面标题
-type: component | view | service | entity | api | flow | concept
+type: component | view | entity | api | flow | concept
 status: stable | draft | deprecated
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
@@ -20,15 +20,24 @@ summary: 一句话摘要
 
 | 值 | 含义 |
 |----|------|
-| `component` | Vue 组件 / FastAPI 核心模块（main/coordinator/agent/graph/nodes） |
+| `component` | 所有代码实现：Vue 组件 / FastAPI 核心 / Java Service / Python 服务 / Pinia Store |
 | `view` | 路由级页面 |
-| `service` | 后端服务（Java Service / Python Tool / RAG / LLM / iServer 客户端） |
 | `entity` | 数据结构 / Schema / 接口入参出参 |
-| `api` | REST API / iServer 服务接口 |
+| `api` | HTTP 接口契约（URL + Request/Response JSON） |
 | `flow` | 业务流程 / 数据流（Mermaid） |
-| `concept` | 技术概念 / ADR 架构决策 |
+| `concept` | 技术概念 / 架构决策 |
 
-**⚠️ 已废弃**：~~store~~、~~tool~~、~~schema~~、~~decision~~、~~change~~（已合并到上表）
+**⚠️ 已废弃**：~~service~~（已合并到 component）
+
+## component 子分类（tech 字段）
+
+| tech 值 | 含义 | 颜色 |
+|---------|------|------|
+| `vue` | Vue 3 组件 | 🟢 绿色 |
+| `fastapi` | FastAPI 核心模块 | 🟠 橙色 |
+| `java` | Java后端 Service | 🔴 红色 |
+| `python` | Python 服务/工具 | 🔵 蓝色 |
+| `store` | Pinia Store | 🟡 黄色 |
 
 ## status 枚举
 
@@ -40,7 +49,7 @@ summary: 一句话摘要
 
 ## 链接语法
 
-- **同库引用**：`[[page-slug]]`（如 `[[SmMapViewer]]`）
+- **同库引用**：`[[pages/type/slug]]`
 - **跨库/外链**：标准 markdown 链接 `[text](url)`
 - **代码引用**：放 `source` 字段，不在正文出现代码路径
 

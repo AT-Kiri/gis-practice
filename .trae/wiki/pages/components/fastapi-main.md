@@ -11,8 +11,8 @@ references:
   - apis/rag-api.md
 
 related:
-  - services/llm-service.md
-  - services/rag-service.md
+  - components/llm.md
+  - components/rag.md
 
 source:
   - agent-backend/app/main.py

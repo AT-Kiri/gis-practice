@@ -1,81 +1,55 @@
 ---
 name: wiki-maintenance
-description: 维护和更新 wiki/ 知识库目录。Use when 用户要求创建/更新/归档/查询 wiki 页面，或从代码分析结果生成 wiki 文档，或校验 wiki 规范合规性时。
+description: 维护项目 wiki 知识库。Use when 用户要求新增/更新/归档 wiki 页面 / 校验 wiki 规范 / 重新生成索引 / 审查 references 时。
 ---
 
 # wiki-maintenance — Wiki 知识库维护
 
 ## 定位
 
-维护 `wiki/` 目录下的项目知识库，确保所有页面遵循规范。覆盖创建、更新、归档、查询等全生命周期操作。
+日常维护已有的 wiki 知识库。**不负责首次搭建**（用 `wiki-maintenance` 前先跑 `wiki-bootstrap`）。
 
 ## 触发条件
 
 用户提到以下任何一种表述时触发：
-- "帮我在 wiki 里创建/新增一个页面"
+- "新增/添加 wiki 页面"
 - "更新 wiki 里的 XXX 页面"
 - "把 XXX 归档到 wiki"
 - "查一下 wiki 里有没有关于 XXX 的"
-- "校验 wiki 规范"
-- "从代码生成 wiki 页面"
+- "校验 wiki 规范" / "检查 wiki 合规"
+- "重新生成 wiki 索引" / "更新 INDEX"
+- "审查 references" / "合并引用"
+- "从代码更新 wiki 页面"（增量，非首次）
+
+**不触发**：从零搭建 wiki（用 `wiki-bootstrap`）。
 
 ---
 
-## 操作一：创建 Wiki 页面
+## 前置检查
+
+1. 读取 `.trae/wiki/spec.md`。如果不存在，报错并提示先跑 `wiki-bootstrap`。
+2. 读取 `.trae/wiki/profile.md`（可选，用于理解项目上下文）。
+3. 读取 `.trae/wiki/INDEX.md` 了解当前页面状态。
+
+---
+
+## 操作一：新增 Wiki 页面
 
 ### Step 1: 确定页面类型和存放位置
 
-根据内容确定类型，选择对应目录：
+按 `spec.md` 中的 type 枚举和目录约定，确定存放路径。
 
-| 页面类型 | 判断标准 | 存放目录 |
-|---------|---------|---------|
-| 功能模块 | 描述一个 GIS 功能模块（如网络分析、空间查询） | `entities/modules/` |
-| 外部接口 | 描述 SuperMap iServer REST API | `entities/apis/` |
-| 数据资源 | 描述 Jingjin.udbx、Changchun.udbx 等数据 | `entities/database/` |
-| 配置项 | 描述 iServer 服务配置、环境配置 | `entities/config/` |
-| GIS 概念 | 描述缓冲区分析、叠置分析等技术概念 | `concepts/technical/` |
-| 设计方案 | 描述技术方案和设计决策 | `concepts/designs/` |
-| 问题排查 | 描述 Bug 排查过程 | `concepts/troubleshooting/` |
-| 经验教训 | 描述踩坑记录 | `concepts/lessons/` |
+### Step 2: 检查 slug 唯一性
 
-### Step 2: 编写页面内容
+确保 `pages/{type}/{kebab}.md` 不存在。
 
-每个 wiki 页面必须包含：
+### Step 3: 编写页面内容
 
-#### 2.1 YAML Frontmatter（必需）
+按 `spec.md` 的 frontmatter 规范生成页面。`references` 字段暂空，后续由 references 审查补全。
 
-```yaml
----
-title: 页面标题（中文）
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
-type: entity | concept | comparison
-tags: [gis, frontend, backend, analysis, etc.]
----
-```
+### Step 4: 注册到 INDEX.md
 
-#### 2.2 页面正文规范
-
-**Entity 页面** 必须包含：
-- Overview / 是什么
-- 关键信息
-- 与其他实体的关系
-- 来源引用
-
-**Concept 页面** 必须包含：
-- 定义 / 解释
-- 当前认知状态
-- 待解决问题或争议点
-- 相关概念
-
-**Comparison 页面** 必须包含：
-- 对比对象和目的
-- 对比维度（优先使用表格）
-- 结论或总结
-
-### Step 3: 注册到 index.md
-
-在 `wiki/index.md` 对应分类下添加索引条目，格式：
+在对应分类下添加索引条目：
 
 ```markdown
 - [[page-slug]] — 一句话摘要
@@ -83,15 +57,13 @@ tags: [gis, frontend, backend, analysis, etc.]
 
 更新 `Last updated` 日期和 `Total pages` 计数。
 
-### Step 4: 记录到 log.md
-
-在 `wiki/log.md` 末尾追加操作记录：
+### Step 5: 追加 LOG.md
 
 ```markdown
 ## [YYYY-MM-DD] create | 页面标题
 
-- 类型：entity | concept | comparison
-- 存放路径：wiki/entities/modules/page-slug.md
+- 类型：{type}
+- 存放路径：.trae/wiki/pages/{type}/{kebab}.md
 ```
 
 ---
@@ -100,7 +72,7 @@ tags: [gis, frontend, backend, analysis, etc.]
 
 ### Step 1: 读取现有页面
 
-读取目标页面的完整内容，理解现有结构和信息。
+读取目标页面完整内容，理解现有结构。
 
 ### Step 2: 合并新信息
 
@@ -110,9 +82,10 @@ tags: [gis, frontend, backend, analysis, etc.]
 ### Step 3: 更新元数据
 
 - 更新 `updated` 日期为当前日期
-- 如果新增了来源，追加到 `sources` 数组
+- 如果新增了来源，追加到 `source` 数组
+- 如果变更影响了关联关系，标记需要重新审查 references
 
-### Step 4: 记录到 log.md
+### Step 4: 追加 LOG.md
 
 ```markdown
 ## [YYYY-MM-DD] update | 页面标题
@@ -132,12 +105,17 @@ tags: [gis, frontend, backend, analysis, etc.]
 
 ### Step 2: 执行归档
 
-1. 将页面移动到 `wiki/_archive/` 目录
-2. 从 `wiki/index.md` 中移除对应索引条目
-3. 更新 `index.md` 的计数
-4. 在归档页面顶部添加归档标记
+1. 将页面移动到 `.trae/wiki/_archive/{原路径}`（保留目录结构）
+2. 从 `INDEX.md` 中移除对应索引条目
+3. 更新 `INDEX.md` 的计数
+4. 在归档页面顶部添加归档标记：
 
-### Step 3: 记录到 log.md
+```markdown
+> ⚠️ **已归档** — YYYY-MM-DD，原因：{原因}
+> 替代页面：[[new-page]]
+```
+
+### Step 3: 追加 LOG.md
 
 ```markdown
 ## [YYYY-MM-DD] archive | 页面标题
@@ -150,9 +128,9 @@ tags: [gis, frontend, backend, analysis, etc.]
 
 ## 操作四：查询 Wiki 内容
 
-### Step 1: 先查 index.md
+### Step 1: 先查 INDEX.md
 
-读取 `wiki/index.md`，根据分类和摘要快速定位相关页面。
+读取 `INDEX.md`，根据分类和摘要快速定位相关页面。
 
 ### Step 2: 再读具体页面
 
@@ -174,26 +152,84 @@ tags: [gis, frontend, backend, analysis, etc.]
 
 ---
 
-## 操作五：从代码生成 Wiki 页面
+## 操作五：校验 Wiki 规范
 
-### Step 1: 读取代码
+### Step 1: 全量扫描
 
-根据用户指定的模块/接口，读取相关代码文件。
+扫描 `.trae/wiki/pages/` 下所有 `.md` 文件。
 
-### Step 2: 提取知识
+### Step 2: 逐项检查
 
-从代码中提取：
-- 组件功能和 Props 说明
-- 关键业务流程
-- SuperMap iClient API 使用方式
+| 检查项 | 规则 |
+|--------|------|
+| frontmatter 必需字段 | `title, type, status, created, updated, tags, references, source, summary` |
+| type 枚举 | 必须在 `spec.md` 声明的枚举内 |
+| status 枚举 | 必须在 `spec.md` 声明的枚举内 |
+| 文件名 | kebab-case |
+| 死链 | `[[link]]` 引用的目标页面必须存在 |
+| references 一致性 | 如果 A 的 references 包含 B，则 B 的 references 应包含 A（双向检查） |
+| source 有效性 | `source` 字段指向的文件/路径是否存在 |
 
-### Step 3: 生成 Wiki 页面
+### Step 3: 输出校验报告
 
-按操作一的规范生成页面。
+```markdown
+## Wiki 校验报告
 
-### Step 4: 执行操作一的 Step 3-4
+**校验时间**：YYYY-MM-DD
+**检查页面数**：N
+**问题数**：M
 
-注册 index.md 和记录 log.md。
+### 问题列表
+
+| 页面 | 问题 | 严重级别 |
+|------|------|---------|
+| pages/components/Foo.md | type 非法值 `compnent` | P0 |
+| pages/views/Bar.md | 死链 [[NonExistent]] | P1 |
+```
+
+---
+
+## 操作六：重新生成索引
+
+### Step 1: 全量扫描
+
+扫描 `.trae/wiki/pages/` 下所有 `.md` 文件。
+
+### Step 2: 重写 INDEX.md
+
+按分类重新生成索引表格，更新 `Last updated` 和 `Total pages`。
+
+### Step 3: 追加 LOG.md
+
+```markdown
+## [YYYY-MM-DD] reindex | 索引重建
+
+- 页面总数：N
+```
+
+---
+
+## 操作七：审查 references
+
+### Step 1: 读取 auto.json
+
+读取 `.trae/wiki/references/auto.json`，了解自动计算的引用关系。
+
+### Step 2: 合并到页面
+
+将自动计算的 references 合并到对应页面的 frontmatter。合并规则：
+- 已存在的引用不重复添加
+- 自动计算的引用标记来源为 `auto`
+- 人工补充的引用标记来源为 `manual`
+
+### Step 3: 追加 LOG.md
+
+```markdown
+## [YYYY-MM-DD] refs-merge | References 合并
+
+- 新增引用：N 条
+- 已存在跳过：M 条
+```
 
 ---
 
@@ -202,10 +238,11 @@ tags: [gis, frontend, backend, analysis, etc.]
 每次执行 wiki 操作后，必须逐条确认：
 
 ```
-□ 读取 wiki/index.md 确认索引状态
-□ 执行操作（create/update/archive/query）
-□ 更新 wiki/index.md（如涉及页面新增/归档）
-□ 追加 wiki/log.md 操作记录
-□ Frontmatter 格式正确（title/created/updated/type/tags）
+□ 读取 spec.md 确认规范
+□ 执行操作（create/update/archive/query/validate/reindex/refs-merge）
+□ 更新 INDEX.md（如涉及页面新增/归档）
+□ 追加 LOG.md 操作记录
+□ Frontmatter 格式正确
 □ 文件名使用 kebab-case
+□ 死链检查通过
 ```

@@ -73,11 +73,10 @@ function main() {
   console.log('  扫描到 ' + pages.length + ' 个 wiki 页面');
 
   const typeConfig = {
-    component: { label: '组件', color: '#4ade80', bg: '#064e3b' },
+    component: { label: '组件/实现', color: '#a78bfa', bg: '#4c1d95' },
     view:      { label: '页面', color: '#60a5fa', bg: '#1e3a8a' },
-    service:   { label: '服务', color: '#fbbf24', bg: '#78350f' },
     entity:    { label: '实体', color: '#fb923c', bg: '#7c2d12' },
-    api:       { label: '接口', color: '#c084fc', bg: '#581c87' },
+    api:       { label: '接口', color: '#34d399', bg: '#064e3b' },
     flow:      { label: '流程', color: '#22d3ee', bg: '#164e63' },
     concept:   { label: '概念', color: '#f472b6', bg: '#831843' },
   };

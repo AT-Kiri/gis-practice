@@ -8,6 +8,7 @@ tags: []
 references:
   - pages/components/sm-map-viewer.md
   - pages/components/agent-chat-panel.md
+  - pages/components/agent-chat-message.md
 related:
   - pages/views/data-dashboard-view.md
   - pages/components/spatial-query.md

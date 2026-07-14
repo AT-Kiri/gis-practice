@@ -3,7 +3,7 @@ title: 项目总览
 type: concept
 status: stable
 created: 2026-07-10
-updated: 2026-07-10
+updated: 2026-07-14
 tags: [home, overview, tech-stack]
 
 summary: 京津冀城市综合防灾应急管理 GIS 项目总览
@@ -62,6 +62,6 @@ summary: 京津冀城市综合防灾应急管理 GIS 项目总览
 
 ## 项目统计
 
-- **总页面数**：81
-- **节点类型**：7 种
-- **关联边数**：325
+- **总页面数**：82
+- **节点类型**：6 种
+- **子分类（tech）**：5 种（vue, store, python, fastapi, java）

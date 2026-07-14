@@ -1,14 +1,7 @@
 {
   "generated": "2026-07-14",
   "references": {
-    "pages/apis/iserver-buffer.md": [
-      "pages/services/map.md"
-    ],
-    "pages/apis/iserver-feature-results.md": [
-      "pages/services/map.md"
-    ],
     "pages/apis/iserver-map-tile.md": [
-      "pages/services/map.md",
       "pages/components/nav-sidebar.md",
       "pages/components/map-toolbar.md",
       "pages/components/map-overview.md",
@@ -19,43 +12,16 @@
       "pages/components/spatial-query.md",
       "pages/components/layer-manager.md"
     ],
-    "pages/apis/iserver-network-analyst.md": [
-      "pages/services/map.md"
-    ],
-    "pages/apis/iserver-sql-query.md": [
-      "pages/services/map.md"
-    ],
     "pages/components/agent-chat-message.md": [
-      "pages/components/agent-tool-call-card.md",
-      "pages/services/agent.md"
+      "pages/components/agent-tool-call-card.md"
     ],
     "pages/components/agent-chat-panel.md": [
-      "pages/services/agent.md",
       "pages/components/agent-chat-message.md"
     ],
     "pages/components/dashboard-route-planning-modal.md": [
       "pages/components/earthquake-rescue-dispatch-panel.md"
     ],
-    "pages/components/feature-search.md": [
-      "pages/services/map.md"
-    ],
-    "pages/components/layer-manager.md": [
-      "pages/services/map.md"
-    ],
-    "pages/components/map-measure.md": [
-      "pages/services/map.md"
-    ],
-    "pages/components/map-overview.md": [
-      "pages/services/map.md"
-    ],
-    "pages/components/map-toolbar.md": [
-      "pages/services/map.md"
-    ],
-    "pages/components/network-analysis.md": [
-      "pages/services/map.md"
-    ],
     "pages/components/sm-map-viewer.md": [
-      "pages/services/map.md",
       "pages/components/nav-sidebar.md",
       "pages/components/map-toolbar.md",
       "pages/components/map-overview.md",
@@ -66,36 +32,17 @@
       "pages/components/spatial-query.md",
       "pages/components/layer-manager.md"
     ],
-    "pages/components/spatial-analysis.md": [
-      "pages/services/map.md"
-    ],
-    "pages/components/spatial-query.md": [
-      "pages/services/map.md"
-    ],
-    "pages/concepts/adr-003.md": [
-      "pages/services/map.md"
-    ],
-    "pages/concepts/network-analysis.md": [
-      "pages/services/map.md"
-    ],
-    "pages/concepts/overlay-analysis.md": [
-      "pages/services/map.md"
-    ],
-    "pages/concepts/spatial-query.md": [
-      "pages/services/map.md"
-    ],
-    "pages/flows/network-analysis.md": [
-      "pages/services/map.md"
-    ],
-    "pages/flows/spatial-query.md": [
-      "pages/services/map.md"
+    "pages/views/data-dashboard-view.md": [
+      "pages/components/dashboard-dashboard-map.md",
+      "pages/components/dashboard-disaster-detail-panel.md",
+      "pages/components/dashboard-weather-panel.md",
+      "pages/components/dashboard-buffer-analysis-modal.md",
+      "pages/components/dashboard-route-planning-modal.md"
     ],
     "pages/views/home-view.md": [
       "pages/components/sm-map-viewer.md",
       "pages/components/agent-chat-panel.md",
-      "pages/services/agent.md",
-      "pages/components/agent-chat-message.md",
-      "pages/services/map.md"
+      "pages/components/agent-chat-message.md"
     ]
   }
 }

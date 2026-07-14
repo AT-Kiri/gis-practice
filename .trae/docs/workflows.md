@@ -3,18 +3,18 @@
 > 定义 AI Agent 在本项目中的角色分工、协作流程和规范体系。
 > 适用：京津冀城市综合防灾应急管理 GIS 项目（Vue3 + SuperMap iClient + SpringBoot）
 
----
+***
 
 ## 1. Agent Roles
 
-| 角色 | 职责 | 输入 | 输出 |
-|------|------|------|------|
-| **Architect** | 方案设计、知识库维护、代码审查 | 用户需求 | proposal.md、design.md、spec、tasks.md、checklist.md、知识库更新 |
-| **Developer** | 前端编码为主、后端按需 | tasks.md、design.md | 功能代码、测试验证 |
+| 角色            | 职责              | 输入                 | 输出                                                     |
+| ------------- | --------------- | ------------------ | ------------------------------------------------------ |
+| **Architect** | 方案设计、知识库维护、代码审查 | 用户需求               | proposal.md、design.md、spec、tasks.md、checklist.md、知识库更新 |
+| **Developer** | 前端编码为主、后端按需     | tasks.md、design.md | 功能代码、测试验证                                              |
 
 本项目为单人/小组课设，前后端通常一人完成，不再拆分 Frontend / Backend / QA 独立角色。
 
----
+***
 
 ## 2. 协作流程
 
@@ -60,7 +60,7 @@
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
----
+***
 
 ## 3. Spec-Driven Workflow（OpenSpec）
 
@@ -82,68 +82,70 @@ openspec/
 
 ### 3.2 变更 ID 规范
 
-| 类型 | 格式 | 示例 |
-|------|------|------|
-| **新变更（推荐）** | `{YYYYMMDD}-{short-desc}` | `20260617-network-analysis` |
-| **已有变更** | 保持原名不动 | `project-foundation`、`spatial-query` |
+| 类型          | 格式                        | 示例                                   |
+| ----------- | ------------------------- | ------------------------------------ |
+| **新变更（推荐）** | `{YYYYMMDD}-{short-desc}` | `20260617-network-analysis`          |
+| **已有变更**    | 保持原名不动                    | `project-foundation`、`spatial-query` |
 
 - `short-desc` 用小写字母 + 连字符，简洁描述变更内容
 - 已有变更不改名，避免路径引用断裂
 
 ### 3.3 文件说明
 
-| 文件 | 内容要求 | 责任人 |
-|------|----------|--------|
-| `.openspec.yaml` | schema 版本、创建时间、父变更依赖（如有） | Architect |
-| `proposal.md` | **需求论证**：Why（业务背景）、What（变更内容）、Capabilities（新增/修改能力）、Impact（影响范围） | Architect |
-| `design.md` | **技术设计**：Context（上下文）、Goals/Non-Goals（目标与边界）、Decisions（方案对比与选型理由） | Architect |
-| `specs/*/spec.md` | **行为规格**：每个模块独立文件，用 Given/When/Then 定义场景；覆盖正常、异常、边界三种情况 | Architect |
-| `tasks.md` | **实现清单**：可执行任务项、优先级、依赖关系、状态跟踪 | Architect |
-| `checklist.md` | **验收清单**：功能验收、边界情况、规范检查、自测结果 | Architect |
+| 文件                | 内容要求                                                              | 责任人       |
+| ----------------- | ----------------------------------------------------------------- | --------- |
+| `.openspec.yaml`  | schema 版本、创建时间、父变更依赖（如有）                                          | Architect |
+| `proposal.md`     | **需求论证**：Why（业务背景）、What（变更内容）、Capabilities（新增/修改能力）、Impact（影响范围）  | Architect |
+| `design.md`       | **技术设计**：Context（上下文）、Goals/Non-Goals（目标与边界）、Decisions（方案对比与选型理由） | Architect |
+| `specs/*/spec.md` | **行为规格**：每个模块独立文件，用 Given/When/Then 定义场景；覆盖正常、异常、边界三种情况           | Architect |
+| `tasks.md`        | **实现清单**：可执行任务项、优先级、依赖关系、状态跟踪                                     | Architect |
+| `checklist.md`    | **验收清单**：功能验收、边界情况、规范检查、自测结果                                      | Architect |
 
 ### 3.4 工作流约束
 
-1. **编码前**：proposal.md → design.md → specs/*/spec.md → tasks.md → checklist.md **必须全部完成**
+1. **编码前**：proposal.md → design.md → specs/\*/spec.md → tasks.md → checklist.md **必须全部完成**
 2. **编码中**：严格按照 `tasks.md` 执行任务，每完成一项标注完成状态
 3. **编码后**：逐条核对 `checklist.md`，全部通过方可进入评审
 4. **评审后**：根据评审意见更新对应文档，形成闭环
 
----
+***
 
 ## 4. 规则与 Skill
 
 ### 4.1 规则（Rules）加载机制
 
-| 规则文件 | 加载方式 | 适用范围 | 约束内容 |
-|----------|----------|----------|----------|
-| `project_rules.md` | 自动加载 | 全项目 | 目录结构、Git 规范、命名规范、安全规范 |
-| `coding_guidelines.md` | 按需加载 | AI 行为 | AI 编码行为准则（简洁优先、精准修改等） |
-| `frontend_rules.md` | 按需加载 | Vue 前端 | 组件规范、UI 规范、SuperMap 集成规范 |
+| 规则文件                   | 加载方式 | 适用范围   | 约束内容                     |
+| ---------------------- | ---- | ------ | ------------------------ |
+| `project_rules.md`     | 自动加载 | 全项目    | 目录结构、Git 规范、命名规范、安全规范    |
+| `coding_guidelines.md` | 按需加载 | AI 行为  | AI 编码行为准则（简洁优先、精准修改等）    |
+| `frontend_rules.md`    | 按需加载 | Vue 前端 | 组件规范、UI 规范、SuperMap 集成规范 |
 
 **加载原则**：
+
 - **自动加载**：`project_rules.md` 为全局上下文，每次提问自动加载
 - **按需加载**：其他规则文件根据当前任务类型选择性加载
 - **显式引用**：AI Agent 在需要时应主动读取对应规则文件
 
 ### 4.2 Skill / MCP 调用对照表
 
-| Skill / MCP 工具 | 调用时机 | 输出 |
-|-----------------|----------|------|
-| **MCP** `codegraph_explore` | 编码前分析模块结构；验收前审查修改范围 | 代码结构 + 调用路径 |
-| **MCP** `codegraph_node` | 编码中查看单个符号的源码+调用链 | 符号源码 + 调用者/被调用者 |
-| **MCP** `codegraph_callers` | 查询"谁调用了这个方法" | 调用方列表 |
-| **MCP** `codegraph_impact` | 评估修改某个符号的影响范围 | 影响分析报告 |
-| **MCP** `codegraph_context` | 获取任务相关的代码上下文 | 相关代码片段 |
-| `code-review` | 编码完成后 | 代码审查报告 |
-| `req-doc-gen` | 需要生成需求文档时（按需） | 需求文档 |
-| `awesome-design-md-main` | 需要参考知名网站 UI 设计风格时 | 设计参考 |
-| `wiki-maintenance` | 更新 wiki 知识库时 | wiki 页面 |
+| Skill / MCP 工具              | 调用时机                | 输出              |
+| --------------------------- | ------------------- | --------------- |
+| **MCP** `codegraph_explore` | 编码前分析模块结构；验收前审查修改范围 | 代码结构 + 调用路径     |
+| **MCP** `codegraph_node`    | 编码中查看单个符号的源码+调用链    | 符号源码 + 调用者/被调用者 |
+| **MCP** `codegraph_callers` | 查询"谁调用了这个方法"        | 调用方列表           |
+| **MCP** `codegraph_impact`  | 评估修改某个符号的影响范围       | 影响分析报告          |
+| **MCP** `codegraph_context` | 获取任务相关的代码上下文        | 相关代码片段          |
+| `code-review`               | 编码完成后               | 代码审查报告          |
+| `req-doc-gen`               | 需要生成需求文档时（按需）       | 需求文档            |
+| `awesome-design-md-main`    | 需要参考知名网站 UI 设计风格时   | 设计参考            |
+| `wiki-maintenance`          | 更新 wiki 知识库时        | wiki 页面         |
 
----
+***
 
 ## 5. Architect 工作流
 
 **触发条件**：
+
 - 用户发起新需求请求
 - 需要方案设计评审
 
@@ -186,17 +188,19 @@ Step 4: 验收与知识库同步
 ```
 
 **输出标准**：
+
 - proposal.md 必须包含：Why（背景）、What（变更内容）、Capabilities、Impact
 - design.md 必须包含：Context、Goals/Non-Goals、Decisions（方案对比）
-- specs/*/spec.md 必须包含：Given/When/Then 场景定义（正常/异常/边界）
+- specs/\*/spec.md 必须包含：Given/When/Then 场景定义（正常/异常/边界）
 - tasks.md 必须包含：可执行的任务项、明确的优先级、依赖关系
 - checklist.md 必须包含：可量化的验收标准
 
----
+***
 
 ## 6. Developer 工作流
 
 **触发条件**：
+
 - tasks.md 中分配了开发任务
 - 用户直接请求功能开发
 - Bug 修复
@@ -235,11 +239,12 @@ Step 4: 交付
 ```
 
 **输出标准**：
-- 代码遵循 frontend_rules.md / project_rules.md 规范
+
+- 代码遵循 frontend\_rules.md / project\_rules.md 规范
 - 功能正常通过 checklist.md 验收
 - 代码审查 P0 级别问题数为 0
 
----
+***
 
 ## 7. CodeGraph 索引维护
 
@@ -256,3 +261,4 @@ CodeGraph 的代码索引文件（`.codegraph/*.db`）已加入 `.gitignore`，�
 - `.codegraph/` 目录保持在项目根目录（`d:\Code\AI-Code\GIS-Practice\.codegraph`），**不要移动或重命名**
 - 索引文件无需手动清理，CodeGraph 会自动增量更新
 - 如遇到索引过期或分析不准，重启 Trae IDE 即可自动刷新 MCP 服务
+

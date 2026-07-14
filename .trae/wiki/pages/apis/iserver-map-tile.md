@@ -7,6 +7,15 @@ updated: 2026-07-10
 tags: []
 references:
   - pages/components/sm-map-viewer.md
+  - pages/components/nav-sidebar.md
+  - pages/components/map-toolbar.md
+  - pages/components/map-overview.md
+  - pages/components/map-measure.md
+  - pages/components/feature-search.md
+  - pages/components/spatial-analysis.md
+  - pages/components/network-analysis.md
+  - pages/components/spatial-query.md
+  - pages/components/layer-manager.md
 related:
   - apis/iserver-feature-results.md
 source:
