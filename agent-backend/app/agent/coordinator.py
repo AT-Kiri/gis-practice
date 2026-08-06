@@ -20,6 +20,7 @@ from app.agent.graph import stream_agent_events
 from app.agent.state import MAX_STEPS
 from app.services.llm_service import LLMService
 from app.services.session_store import get_history, add_exchange
+from app.tools.algo_tools import haversine_m
 
 logger = logging.getLogger(__name__)
 
@@ -430,7 +431,7 @@ def _add_pareto_resources(lines: list, geojson, center, prefix: str = ""):
             continue
         try:
             lng, lat = float(coords[0]), float(coords[1])
-            dist_m = round(_haversine_km(center[0], center[1], lng, lat) * 1000)
+            dist_m = round(haversine_m(center[0], center[1], lng, lat))
             resources.append({
                 "name": props.get("_displayName", "资源点"),
                 "lng": lng,
@@ -480,18 +481,6 @@ def _extract_center_from_step(step: dict):
     return None
 
 
-def _haversine_km(lng1, lat1, lng2, lat2) -> float:
-    """计算两点间球面距离（公里），用于 Point 要素排序。"""
-    R = 6371.0
-    import math as _math
-    rl1 = _math.radians(lat1)
-    rl2 = _math.radians(lat2)
-    dlat = _math.radians(lat2 - lat1)
-    dlng = _math.radians(lng2 - lng1)
-    a = _math.sin(dlat / 2) ** 2 + _math.cos(rl1) * _math.cos(rl2) * _math.sin(dlng / 2) ** 2
-    return 2 * R * _math.asin(_math.sqrt(a))
-
-
 def _extract_coords_from_geojson(geojson, center=None) -> str:
     """从 GeoJSON FeatureCollection 中提取关键坐标供下一步复用。
 
@@ -526,7 +515,7 @@ def _extract_coords_from_geojson(geojson, center=None) -> str:
         if gtype == "Point" and center:
             try:
                 lng, lat = float(coordinates[0]), float(coordinates[1])
-                dist = _haversine_km(center[0], center[1], lng, lat)
+                dist = haversine_m(center[0], center[1], lng, lat) / 1000
                 point_items.append((f, dist))
             except (IndexError, TypeError, ValueError):
                 other_items.append((f, None))

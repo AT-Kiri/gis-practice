@@ -19,41 +19,6 @@ export function getTileUrl(serviceUrl) {
 }
 
 /**
- * 将 iServer 返回的 feature 数据转换为标准 GeoJSON FeatureCollection
- * iServer 可能返回多种格式：数组、{features: [...]} 或 {recordsets: [{features: {features: [...]}}]}
- * @param {object|array} data - iServer 返回的原始数据
- * @returns {object} 标准 GeoJSON FeatureCollection
- */
-export function toGeoJSON(data) {
-  if (!data) return { type: 'FeatureCollection', features: [] }
-
-  let features = []
-  if (Array.isArray(data)) {
-    // 直接是数组格式
-    features = data
-  } else if (data.features) {
-    // 标准 { features: [...] } 格式
-    features = data.features
-  } else if (data.recordsets) {
-    // map service queryResults 响应格式，遍历 recordsets 提取
-    for (const rs of data.recordsets) {
-      if (rs.features && rs.features.features) {
-        features = features.concat(rs.features.features)
-      }
-    }
-  }
-
-  return {
-    type: 'FeatureCollection',
-    features: features.map((f) => ({
-      type: 'Feature',
-      geometry: f.geometry || f.fieldGeometries?.SMGEOMETRY,
-      properties: f.properties || {},
-    })),
-  }
-}
-
-/**
  * Changchun 平面坐标 ↔ WGS84 的映射范围
  * 平面坐标来源: RoadNet@Changchun 数据集 datasetInfo.bounds
  * WGS84 对应: 长春市区地理范围
@@ -146,48 +111,6 @@ export function serverGeoToGeoJSON(g) {
     return { type: 'Polygon', coordinates: [g.points.map(p => [p.x, p.y])] }
   }
   return null
-}
-
-/**
- * 将 GeoJSON Geometry 转为 iServer Server JSON 格式
- * 支持 Point / LineString / Polygon 三种类型
- * @param {object} g - GeoJSON Geometry
- * @returns {object} Server JSON Geometry
- */
-export function geoJSONToServerGeo(g) {
-  if (!g || !g.type) return null
-  if (g.type === 'Point') {
-    return { type: 'POINT', points: [{ x: g.coordinates[0], y: g.coordinates[1] }] }
-  }
-  if (g.type === 'LineString') {
-    return { type: 'LINE', points: g.coordinates.map(([x, y]) => ({ x, y })) }
-  }
-  if (g.type === 'Polygon') {
-    const ring = g.coordinates[0]
-    return { type: 'REGION', points: ring.map(([x, y]) => ({ x, y })), parts: [ring.length] }
-  }
-  return g
-}
-
-/**
- * 计算两经纬度点之间的近似距离（Haversine 公式）
- * @param {number[]} p1 - [lng, lat]
- * @param {number[]} p2 - [lng, lat]
- * @returns {number} 距离，单位 km
- */
-export function calcDistance(p1, p2) {
-  if (!p1 || !p2) return 0
-  const R = 6371
-  const dLat = ((p2[1] - p1[1]) * Math.PI) / 180
-  const dLon = ((p2[0] - p1[0]) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((p1[1] * Math.PI) / 180) *
-      Math.cos((p2[1] * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
 }
 
 /**

@@ -15,6 +15,7 @@ from shapely.geometry import shape as _shp_shape
 logger = logging.getLogger(__name__)
 from langchain_core.tools import tool
 from app.schemas.tool_result import ToolResult
+from app.tools.algo_tools import haversine_m, _normalize_json_param
 from app.services.iserver_client import (
     iserver_client,
     DATASOURCE,
@@ -142,16 +143,8 @@ def _is_degenerate_polygon(geometry: dict) -> bool:
 
 
 def _normalize_geometry(g):
-    """
-    归一化几何参数：LLM（尤其 DeepSeek-V3.2）有时会把 dict 类型参数
-    以 JSON 字符串形式传入，这里统一转为 dict。
-    """
-    if isinstance(g, str):
-        try:
-            return json.loads(g)
-        except Exception:
-            return None
-    return g
+    """归一化几何参数：复用 algo_tools._normalize_json_param（LLM 可能以 JSON 字符串传 dict）。"""
+    return _normalize_json_param(g)
 
 
 def _simplify_geometry_for_llm(geometry: dict, max_points: int = 20) -> str:
@@ -1124,15 +1117,7 @@ async def online_route_planning(origin: str, destination: str) -> dict:
         ).to_dict()
     except Exception:
         # 降级为直线距离
-        def _haversine(lng1, lat1, lng2, lat2):
-            R = 6371000
-            phi1, phi2 = math.radians(lat1), math.radians(lat2)
-            dphi = math.radians(lat2 - lat1)
-            dlambda = math.radians(lng2 - lng1)
-            a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
-            return 2 * R * math.asin(math.sqrt(a))
-
-        dist = _haversine(origin["lng"], origin["lat"], destination["lng"], destination["lat"])
+        dist = haversine_m(origin["lng"], origin["lat"], destination["lng"], destination["lat"])
         coords = [[origin["lng"], origin["lat"]], [destination["lng"], destination["lat"]]]
         return ToolResult(
             success=True,
