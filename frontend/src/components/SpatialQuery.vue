@@ -121,12 +121,12 @@ import {
   BorderOutlined, MinusCircleOutlined,
 } from '@ant-design/icons-vue'
 import { useMapStore } from '../stores/map'
-import { serverGeoToGeoJSON, ISERVER_URL } from '../utils/map'
+import { serverGeoToGeoJSON, ISERVER_URL, DATASOURCE_JINGJIN, emptyFeatureCollection, setGeoJSONData, ensureGeoJSONSources } from '../utils/map'
 import mapboxgl from 'mapbox-gl'
 
 // ==================== iServer 配置 ====================
 const DATA_SERVICE = 'data-jingjin'
-const DATASOURCE = 'Jingjin'
+const DATASOURCE = DATASOURCE_JINGJIN
 
 /** 需要查询的 9 个数据集 */
 const DATASETS = [
@@ -224,16 +224,7 @@ function ensureSources() {
   ]
 
   // 创建数据源和图层（如不存在）
-  sources().forEach(src => {
-    if (!map.getSource(src.id)) {
-      map.addSource(src.id, { type: 'geojson', data: emptyFC() })
-    }
-  })
-  layers.forEach(l => {
-    if (!map.getLayer(l.id)) {
-      map.addLayer(l)
-    }
-  })
+  ensureGeoJSONSources(map, sources(), layers)
 }
 
 function sources() {
@@ -244,19 +235,6 @@ function sources() {
     { id: RESULT_POLY_SOURCE },
     { id: HIGHLIGHT_SOURCE },
   ]
-}
-
-function emptyFC() {
-  return { type: 'FeatureCollection', features: [] }
-}
-
-/** 安全设置数据源内容 */
-function setSourceData(sourceId, features) {
-  const map = store.mapInstance
-  if (!map) return
-  try {
-    map.getSource(sourceId).setData({ type: 'FeatureCollection', features })
-  } catch (e) { /* ignore */ }
 }
 
 // ==================== 绘制模式管理 ====================
@@ -312,7 +290,7 @@ function deactivateDrawMode() {
   map.off('mousemove', onCircleMouseMove)
 
   // 清除选择框图形
-  setSourceData(SELECTION_SOURCE, [])
+  setGeoJSONData(store.mapInstance, SELECTION_SOURCE, [])
   drawState = null
   mode.value = null
 }
@@ -325,7 +303,7 @@ function onPointClick(e) {
   const lat = e.lngLat.lat
   const circle = buildBufferCircle([lng, lat], 500)
 
-  setSourceData(SELECTION_SOURCE, [{
+  setGeoJSONData(store.mapInstance, SELECTION_SOURCE, [{
     type: 'Feature',
     geometry: { type: 'Polygon', coordinates: [circle] },
   }])
@@ -365,7 +343,7 @@ function updateRectPreview() {
   if (!drawState || drawState.type !== 'rect') return
   const [x1, y1] = drawState.start
   const [x2, y2] = drawState.current
-  setSourceData(SELECTION_SOURCE, [{
+  setGeoJSONData(store.mapInstance, SELECTION_SOURCE, [{
     type: 'Feature',
     geometry: {
       type: 'Polygon',
@@ -384,7 +362,7 @@ function onCircleClick(e) {
   } else {
     // Second click: finalize
     const circle = buildBufferCircle(drawState.center, drawState.radius)
-    setSourceData(SELECTION_SOURCE, [{
+    setGeoJSONData(store.mapInstance, SELECTION_SOURCE, [{
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [circle] },
     }])
@@ -402,7 +380,7 @@ function onCircleMouseMove(e) {
   drawState.radius = Math.sqrt(dx * dx + dy * dy)
 
   const circle = buildBufferCircle(drawState.center, drawState.radius)
-  setSourceData(SELECTION_SOURCE, [{
+  setGeoJSONData(store.mapInstance, SELECTION_SOURCE, [{
     type: 'Feature',
     geometry: { type: 'Polygon', coordinates: [circle] },
   }])
@@ -619,9 +597,9 @@ function displayResults(features) {
     }
   })
 
-  setSourceData(RESULT_POINT_SOURCE, pointFeatures)
-  setSourceData(RESULT_LINE_SOURCE, lineFeatures)
-  setSourceData(RESULT_POLY_SOURCE, polyFeatures)
+  setGeoJSONData(store.mapInstance, RESULT_POINT_SOURCE, pointFeatures)
+  setGeoJSONData(store.mapInstance, RESULT_LINE_SOURCE, lineFeatures)
+  setGeoJSONData(store.mapInstance, RESULT_POLY_SOURCE, polyFeatures)
 
   // 注册结果要素的点击事件（显示详情弹窗）
   if (pointFeatures.length) {
@@ -650,10 +628,10 @@ function clearResultDisplay() {
   const map = store.mapInstance
   if (!map) return
 
-  setSourceData(RESULT_POINT_SOURCE, [])
-  setSourceData(RESULT_LINE_SOURCE, [])
-  setSourceData(RESULT_POLY_SOURCE, [])
-  setSourceData(HIGHLIGHT_SOURCE, [])
+  setGeoJSONData(store.mapInstance, RESULT_POINT_SOURCE, [])
+  setGeoJSONData(store.mapInstance, RESULT_LINE_SOURCE, [])
+  setGeoJSONData(store.mapInstance, RESULT_POLY_SOURCE, [])
+  setGeoJSONData(store.mapInstance, HIGHLIGHT_SOURCE, [])
 
   map.off('click', 'sq-result-point-circle', onResultClick)
   map.off('click', 'sq-result-line', onResultClick)
@@ -731,13 +709,13 @@ function highlightFeature(item) {
   const geo = serverGeoToGeoJSON(item.geometry)
   if (!geo) return
   hoveredId.value = item.smid + '-' + item.dataset
-  setSourceData(HIGHLIGHT_SOURCE, [{ type: 'Feature', geometry: geo }])
+  setGeoJSONData(store.mapInstance, HIGHLIGHT_SOURCE, [{ type: 'Feature', geometry: geo }])
 }
 
 /** 取消高亮 */
 function unhighlightFeature() {
   hoveredId.value = null
-  setSourceData(HIGHLIGHT_SOURCE, [])
+  setGeoJSONData(store.mapInstance, HIGHLIGHT_SOURCE, [])
 }
 
 /** 点击要素时聚焦并显示详情 */

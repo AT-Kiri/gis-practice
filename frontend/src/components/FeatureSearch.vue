@@ -134,11 +134,11 @@
 import { ref, reactive, computed, onUnmounted } from 'vue'
 import { CloseOutlined, SendOutlined } from '@ant-design/icons-vue'
 import { useMapStore } from '../stores/map'
-import { serverGeoToGeoJSON, ISERVER_URL } from '../utils/map'
+import { serverGeoToGeoJSON, ISERVER_URL, DATASOURCE_JINGJIN, emptyFeatureCollection, setGeoJSONData, ensureGeoJSONSources } from '../utils/map'
 import mapboxgl from 'mapbox-gl'
 
 // ==================== iServer 配置 ====================
-const DATASOURCE = 'Jingjin'
+const DATASOURCE = DATASOURCE_JINGJIN
 
 /** 数据集英文名 → 中文显示名 */
 const LAYER_NAMES = {
@@ -197,14 +197,7 @@ const RESULT_LINE_SOURCE = 'ts-result-lines'
 const RESULT_POLY_SOURCE = 'ts-result-polys'
 const HIGHLIGHT_SOURCE = 'ts-highlight'
 
-function emptyFC() { return { type: 'FeatureCollection', features: [] } }
-
-/** 安全设置数据源内容 */
-function setSourceData(src, features) {
-  const map = store.mapInstance
-  if (!map) return
-  try { map.getSource(src).setData({ type: 'FeatureCollection', features }) } catch(e) {}
-}
+function emptyFC() { return emptyFeatureCollection() }
 
 /** 确保搜索相关图层已创建 */
 function ensureSources() {
@@ -217,9 +210,6 @@ function ensureSources() {
     { id: RESULT_POLY_SOURCE },
     { id: HIGHLIGHT_SOURCE },
   ]
-  sources.forEach(s => {
-    if (!map.getSource(s.id)) map.addSource(s.id, { type: 'geojson', data: emptyFC() })
-  })
 
   const layers = [
     { id: 'ts-result-fill', source: RESULT_POLY_SOURCE, type: 'fill',
@@ -237,9 +227,7 @@ function ensureSources() {
     { id: 'ts-highlight-point', source: HIGHLIGHT_SOURCE, type: 'circle',
       paint: { 'circle-color': '#ff4d4f', 'circle-radius': 8, 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } },
   ]
-  layers.forEach(l => {
-    if (!map.getLayer(l.id)) map.addLayer(l)
-  })
+  ensureGeoJSONSources(map, sources, layers)
 }
 
 // ==================== 搜索 ====================
@@ -367,9 +355,9 @@ function displayResults(features) {
     else if (geo.type === 'Polygon' || geo.type === 'MultiPolygon') polys.push(feat)
   })
 
-  setSourceData(RESULT_POINT_SOURCE, pts)
-  setSourceData(RESULT_LINE_SOURCE, lines)
-  setSourceData(RESULT_POLY_SOURCE, polys)
+  setGeoJSONData(store.mapInstance, RESULT_POINT_SOURCE, pts)
+  setGeoJSONData(store.mapInstance, RESULT_LINE_SOURCE, lines)
+  setGeoJSONData(store.mapInstance, RESULT_POLY_SOURCE, polys)
 
   // 注册点击和悬停事件
   ;['ts-result-point', 'ts-result-line', 'ts-result-fill', 'ts-result-outline'].forEach(id => {
@@ -384,10 +372,10 @@ function displayResults(features) {
 function clearResultDisplay() {
   const map = store.mapInstance
   if (!map) return
-  setSourceData(RESULT_POINT_SOURCE, [])
-  setSourceData(RESULT_LINE_SOURCE, [])
-  setSourceData(RESULT_POLY_SOURCE, [])
-  setSourceData(HIGHLIGHT_SOURCE, [])
+  setGeoJSONData(store.mapInstance, RESULT_POINT_SOURCE, [])
+  setGeoJSONData(store.mapInstance, RESULT_LINE_SOURCE, [])
+  setGeoJSONData(store.mapInstance, RESULT_POLY_SOURCE, [])
+  setGeoJSONData(store.mapInstance, HIGHLIGHT_SOURCE, [])
   ;['ts-result-point', 'ts-result-line', 'ts-result-fill', 'ts-result-outline'].forEach(id => {
     map.off('click', id, onMapResultClick)
     map.off('mouseenter', id, tsCursorPointer)
@@ -439,13 +427,13 @@ function highlightItem(item) {
   const geo = serverGeoToGeoJSON(item.geometry)
   if (!geo) return
   hoveredId.value = item.smid + '-' + item.dataset
-  setSourceData(HIGHLIGHT_SOURCE, [{ type: 'Feature', geometry: geo }])
+  setGeoJSONData(store.mapInstance, HIGHLIGHT_SOURCE, [{ type: 'Feature', geometry: geo }])
 }
 
 /** 取消悬停高亮 */
 function unhighlightItem() {
   hoveredId.value = null
-  setSourceData(HIGHLIGHT_SOURCE, [])
+  setGeoJSONData(store.mapInstance, HIGHLIGHT_SOURCE, [])
 }
 
 /** 点击列表中要素：聚焦地图并显示详情抽屉 */

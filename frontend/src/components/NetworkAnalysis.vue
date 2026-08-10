@@ -94,7 +94,7 @@ import {
   DeleteOutlined, CheckCircleFilled,
 } from '@ant-design/icons-vue'
 import { useMapStore } from '../stores/map'
-import { convertGeometry, changchunToWgs84, wgs84ToChangchun } from '../utils/map'
+import { convertGeometry, changchunToWgs84, wgs84ToChangchun, ISERVER_URL as ISERVER_MAP_URL, MAP_NAME_CHANGCHUN, emptyFeatureCollection, setGeoJSONData, removeLayersSafe, changchunBoundsToWGS84Coords } from '../utils/map'
 import { QueryService, NetworkAnalystService } from '@supermap/iclient-mapboxgl'
 import { DataFormat } from '@supermap/iclient-common/REST'
 
@@ -107,8 +107,8 @@ const store = useMapStore()
 
 // ==================== 常量 ====================
 
-const ISERVER_URL = 'http://localhost:8090'
-const MAP_NAME = encodeURIComponent('长春市区图')
+const ISERVER_URL = ISERVER_MAP_URL
+const MAP_NAME = MAP_NAME_CHANGCHUN
 
 // ==================== 组件状态 ====================
 
@@ -246,11 +246,7 @@ function loadChangchunTile() {
     + `?width=${imgW}&height=${imgH}&viewBounds=${vb}&transparent=false&cacheEnabled=false`
 
   // 四角坐标（NW → NE → SE → SW），与 map.js 中 CC 的经纬度范围保持一致
-  const nw = changchunToWgs84(xMin, yMax)
-  const ne = changchunToWgs84(xMax, yMax)
-  const se = changchunToWgs84(xMax, yMin)
-  const sw = changchunToWgs84(xMin, yMin)
-  const coords = [[nw[0], nw[1]], [ne[0], ne[1]], [se[0], se[1]], [sw[0], sw[1]]]
+  const coords = changchunBoundsToWGS84Coords(xMin, xMax, yMin, yMax)
 
   // 更新或创建 ImageSource（放在分析图层下方）
   if (map.getSource(NA_BG_IMAGE)) {
@@ -381,24 +377,10 @@ async function loadRoadNetwork() {
 
 /** 清理网络分析图层 */
 function cleanupLayers() {
-  const map = store.mapInstance
-  if (!map) return
-  ;['na-points', 'na-path-line', 'na-area-fill', 'na-road-line'].forEach(id => {
-    try { map.removeLayer(id) } catch(e) {}
-  })
-  ;[NA_DRAW_SRC, NA_PATH_SRC, NA_AREA_SRC, NA_ROAD_SRC].forEach(id => {
-    try { map.removeSource(id) } catch(e) {}
-  })
+  removeLayersSafe(store.mapInstance, ['na-points', 'na-path-line', 'na-area-fill', 'na-road-line'], [NA_DRAW_SRC, NA_PATH_SRC, NA_AREA_SRC, NA_ROAD_SRC])
 }
 
-function fc() { return { type: 'FeatureCollection', features: [] } }
-
-/** 安全设置数据源内容 */
-function setSource(src, features) {
-  const map = store.mapInstance
-  if (!map) return
-  try { map.getSource(src).setData({ type: 'FeatureCollection', features }) } catch(e) {}
-}
+function fc() { return emptyFeatureCollection() }
 
 // ==================== SDK Promise 包装器 ====================
 
@@ -508,7 +490,7 @@ function updateDrawPoints() {
     : centerPoint.value
       ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [centerPoint.value.x, centerPoint.value.y] } }]
       : []
-  setSource(NA_DRAW_SRC, features)
+  setGeoJSONData(store.mapInstance, NA_DRAW_SRC, features)
 }
 
 // ==================== 最短路径分析 ====================
@@ -619,7 +601,7 @@ function displayPathResult(data) {
     type: 'Feature',
     geometry: { type: 'LineString', coordinates: allCoords },
   }
-  setSource(NA_PATH_SRC, [feature])
+  setGeoJSONData(store.mapInstance, NA_PATH_SRC, [feature])
 
   // 缩放到路径范围
   const bounds = new mapboxgl.LngLatBounds()
@@ -717,7 +699,7 @@ function displayAreaResult(data) {
     return
   }
 
-  setSource(NA_AREA_SRC, features)
+  setGeoJSONData(store.mapInstance, NA_AREA_SRC, features)
 
   // 计算范围并缩放到结果范围
   const allCoords = features.flatMap(f => f.geometry.coordinates)
@@ -735,9 +717,9 @@ function clearAll() {
   points.value = []
   centerPoint.value = null
   resultInfo.value = null
-  setSource(NA_DRAW_SRC, [])
-  setSource(NA_PATH_SRC, [])
-  setSource(NA_AREA_SRC, [])
+  setGeoJSONData(store.mapInstance, NA_DRAW_SRC, [])
+  setGeoJSONData(store.mapInstance, NA_PATH_SRC, [])
+  setGeoJSONData(store.mapInstance, NA_AREA_SRC, [])
 }
 
 function handleClose() {

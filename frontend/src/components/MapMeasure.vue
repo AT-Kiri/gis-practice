@@ -31,6 +31,7 @@
 import { ref, onUnmounted } from 'vue'
 import { LineOutlined, BorderOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { useMapStore } from '../stores/map'
+import { emptyFeatureCollection } from '../utils/map'
 import mapboxgl from 'mapbox-gl'
 
 const store = useMapStore()
@@ -280,7 +281,7 @@ function clearAll() {
   if (m) m.doubleClickZoom.enable()
 }
 
-function emptyFC() { return { type: 'FeatureCollection', features: [] } }
+function emptyFC() { return emptyFeatureCollection() }
 
 /**
  * Haversine 公式计算两点间的大圆距离（米）

@@ -9,6 +9,12 @@ export const ISERVER_URL = 'http://localhost:8090'
 /** 瓦片图片尺寸（像素） */
 export const TILE_SIZE = 256
 
+/** 京津冀数据源名称 */
+export const DATASOURCE_JINGJIN = 'Jingjin'
+
+/** 长春市区图地图服务名（已 encodeURIComponent） */
+export const MAP_NAME_CHANGCHUN = encodeURIComponent('长春市区图')
+
 /**
  * 生成 iServer ZXY 风格瓦片 URL（用于 MapboxGL raster 数据源）
  * @param {string} serviceUrl - iServer 地图服务地址
@@ -127,4 +133,79 @@ function splitParts(points, parts) {
     idx += count
   }
   return result
+}
+
+// ==================== Mapbox GL 图层管理工具函数 ====================
+// 以下函数提取自 SpatialQuery/FeatureSearch/NetworkAnalysis/SpatialAnalysis/MapMeasure 等组件，
+// 消除各组件中重复的 emptyFC/setSourceData/ensureSources/cleanupLayers 代码。
+
+/**
+ * 返回一个空的 GeoJSON FeatureCollection 对象
+ * @returns {{ type: 'FeatureCollection', features: never[] }}
+ */
+export function emptyFeatureCollection() {
+  return { type: 'FeatureCollection', features: [] }
+}
+
+/**
+ * 安全设置 GeoJSON 数据源内容（map 或 source 不存在时静默忽略）
+ * @param {Object} map - MapboxGL 地图实例
+ * @param {string} sourceId - 数据源 ID
+ * @param {Array} features - GeoJSON Feature 数组
+ */
+export function setGeoJSONData(map, sourceId, features) {
+  if (!map) return
+  try {
+    map.getSource(sourceId).setData({ type: 'FeatureCollection', features })
+  } catch (e) { /* ignore */ }
+}
+
+/**
+ * 批量创建 GeoJSON 数据源和图层（已存在则跳过）
+ * @param {Object} map - MapboxGL 地图实例
+ * @param {Array<{id: string}>} sources - 数据源配置列表
+ * @param {Array<Object>} layers - 图层配置列表（MapboxGL layer 规范）
+ */
+export function ensureGeoJSONSources(map, sources = [], layers = []) {
+  if (!map) return
+  sources.forEach(src => {
+    if (!map.getSource(src.id)) {
+      map.addSource(src.id, { type: 'geojson', data: emptyFeatureCollection() })
+    }
+  })
+  layers.forEach(l => {
+    if (!map.getLayer(l.id)) map.addLayer(l)
+  })
+}
+
+/**
+ * 安全移除图层和数据源（每个操作独立 try-catch，单个失败不影响其他）
+ * @param {Object} map - MapboxGL 地图实例
+ * @param {string[]} layerIds - 要移除的图层 ID 列表（逆序移除）
+ * @param {string[]} sourceIds - 要移除的数据源 ID 列表
+ */
+export function removeLayersSafe(map, layerIds = [], sourceIds = []) {
+  if (!map) return
+  layerIds.slice().reverse().forEach(id => {
+    try { if (map.getLayer(id)) map.removeLayer(id) } catch (e) { /* ignore */ }
+  })
+  sourceIds.forEach(id => {
+    try { if (map.getSource(id)) map.removeSource(id) } catch (e) { /* ignore */ }
+  })
+}
+
+/**
+ * 将长春平面坐标范围的四角转换为 WGS84 坐标数组
+ * @param {number} xMin - 平面 X 最小值
+ * @param {number} xMax - 平面 X 最大值
+ * @param {number} yMin - 平面 Y 最小值
+ * @param {number} yMax - 平面 Y 最大值
+ * @returns {number[][]} 四角 WGS84 坐标 [NW, NE, SE, SW]，每个为 [lng, lat]
+ */
+export function changchunBoundsToWGS84Coords(xMin, xMax, yMin, yMax) {
+  const nw = changchunToWgs84(xMin, yMax)
+  const ne = changchunToWgs84(xMax, yMax)
+  const se = changchunToWgs84(xMax, yMin)
+  const sw = changchunToWgs84(xMin, yMin)
+  return [[nw[0], nw[1]], [ne[0], ne[1]], [se[0], se[1]], [sw[0], sw[1]]]
 }

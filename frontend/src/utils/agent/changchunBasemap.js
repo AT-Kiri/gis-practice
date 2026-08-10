@@ -11,13 +11,10 @@
  *   agent-xxx     → Agent 渲染的结果图层（由 mapRenderer 添加）
  */
 import { useMapStore } from '../../stores/map'
-import { changchunToWgs84, convertGeometry } from '../map'
+import { changchunToWgs84, convertGeometry, ISERVER_URL, MAP_NAME_CHANGCHUN, changchunBoundsToWGS84Coords } from '../map'
 import { QueryService } from '@supermap/iclient-mapboxgl'
 import { DataFormat } from '@supermap/iclient-common/REST'
 import { QueryBySQLParameters } from '@supermap/iclient-common/iServer/QueryBySQLParameters'
-
-const ISERVER_URL = 'http://localhost:8090'
-const MAP_NAME = encodeURIComponent('长春市区图')
 
 const NA_BG_IMAGE = 'na-bg-image'
 const NA_ROAD_SRC = 'na-road'
@@ -100,15 +97,11 @@ function loadChangchunTile(map) {
     leftBottom: { x: xMin, y: yMin },
     rightTop: { x: xMax, y: yMax },
   }))
-  const url = `${ISERVER_URL}/iserver/services/map-changchun/rest/maps/${MAP_NAME}/image.png`
+  const url = `${ISERVER_URL}/iserver/services/map-changchun/rest/maps/${MAP_NAME_CHANGCHUN}/image.png`
     + `?width=${imgW}&height=${imgH}&viewBounds=${vb}&transparent=false&cacheEnabled=false`
 
   // 四角坐标（NW → NE → SE → SW）
-  const nw = changchunToWgs84(xMin, yMax)
-  const ne = changchunToWgs84(xMax, yMax)
-  const se = changchunToWgs84(xMax, yMin)
-  const sw = changchunToWgs84(xMin, yMin)
-  const coords = [[nw[0], nw[1]], [ne[0], ne[1]], [se[0], se[1]], [sw[0], sw[1]]]
+  const coords = changchunBoundsToWGS84Coords(xMin, xMax, yMin, yMax)
 
   map.addSource(NA_BG_IMAGE, { type: 'image', url, coordinates: coords })
   map.addLayer({
@@ -133,7 +126,7 @@ function loadChangchunTile(map) {
  */
 async function loadRoadNetwork(map) {
   try {
-    const url = `/iserver/services/map-changchun/rest/maps/${MAP_NAME}`
+    const url = `/iserver/services/map-changchun/rest/maps/${MAP_NAME_CHANGCHUN}`
     const data = await queryBySQLAsync(url, {
       queryParams: [
         { name: 'RoadNet@Changchun@@长春市区图', attributeFilter: '' },

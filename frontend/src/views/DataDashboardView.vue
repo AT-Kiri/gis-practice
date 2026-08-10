@@ -98,6 +98,7 @@ import {
   generateDamagedPoints,
 } from '@/utils/generateEarthquakePoints.js'
 import { createCirclePolygon } from '@/utils/circlePolygon.js'
+import { removeLayersSafe } from '@/utils/map.js'
 
 // ====== 状态 ======
 const mapContainer = ref(null)
@@ -231,15 +232,7 @@ const EQ_SOURCES = ['eq-buffers-src', 'eq-points-src']
  * 清除所有地震图层
  */
 function cleanupEarthquakeLayers() {
-  const map = mapInstance.value
-  if (!map) return
-  // 后添加的层先删除 → 先删 layer 再删 source
-  EQ_LAYERS.slice().reverse().forEach((id) => {
-    try { if (map.getLayer(id)) map.removeLayer(id) } catch (e) { /* ignore */ }
-  })
-  EQ_SOURCES.forEach((id) => {
-    try { if (map.getSource(id)) map.removeSource(id) } catch (e) { /* ignore */ }
-  })
+  removeLayersSafe(mapInstance.value, EQ_LAYERS, EQ_SOURCES)
 }
 
 /**

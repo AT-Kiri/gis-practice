@@ -135,7 +135,7 @@ import {
   DeleteOutlined, ApiOutlined,
 } from '@ant-design/icons-vue'
 import { useMapStore } from '../stores/map'
-import { ISERVER_URL } from '../utils/map'
+import { ISERVER_URL, emptyFeatureCollection, setGeoJSONData, ensureGeoJSONSources, removeLayersSafe } from '../utils/map'
 import mapboxgl from 'mapbox-gl'
 import { message } from 'ant-design-vue'
 import { DataFormat, BufferEndType, BufferRadiusUnit, DataReturnMode } from '@supermap/iclient-common/REST'
@@ -350,34 +350,25 @@ function getMap() { return store.mapInstance }
 function ensureLayer() {
   const map = getMap()
   if (!map) return
-  if (!map.getSource(DRAW_SOURCE)) {
-    map.addSource(DRAW_SOURCE, { type: 'geojson', data: emptyFC() })
-    map.addLayer({ id: 'sa-draw-fill', source: DRAW_SOURCE, type: 'fill',
+  const sources = [{ id: DRAW_SOURCE }, { id: RESULT_SOURCE }]
+  const layers = [
+    { id: 'sa-draw-fill', source: DRAW_SOURCE, type: 'fill',
       paint: { 'fill-color': '#1890ff', 'fill-opacity': 0.15 },
-      filter: ['==', '$type', 'Polygon'] })
-    map.addLayer({ id: 'sa-draw-line', source: DRAW_SOURCE, type: 'line',
+      filter: ['==', '$type', 'Polygon'] },
+    { id: 'sa-draw-line', source: DRAW_SOURCE, type: 'line',
       paint: { 'line-color': '#1890ff', 'line-width': 3 },
-      filter: ['==', '$type', 'LineString'] })
-    map.addLayer({ id: 'sa-draw-point', source: DRAW_SOURCE, type: 'circle',
-      paint: { 'circle-color': '#1890ff', 'circle-radius': 7 } })
-  }
-  if (!map.getSource(RESULT_SOURCE)) {
-    map.addSource(RESULT_SOURCE, { type: 'geojson', data: emptyFC() })
-    map.addLayer({ id: 'sa-result-fill', source: RESULT_SOURCE, type: 'fill',
-      paint: { 'fill-color': '#722ed1', 'fill-opacity': 0.2, 'fill-outline-color': '#722ed1' } })
-    map.addLayer({ id: 'sa-result-line', source: RESULT_SOURCE, type: 'line',
-      paint: { 'line-color': '#722ed1', 'line-width': 2 } })
-  }
+      filter: ['==', '$type', 'LineString'] },
+    { id: 'sa-draw-point', source: DRAW_SOURCE, type: 'circle',
+      paint: { 'circle-color': '#1890ff', 'circle-radius': 7 } },
+    { id: 'sa-result-fill', source: RESULT_SOURCE, type: 'fill',
+      paint: { 'fill-color': '#722ed1', 'fill-opacity': 0.2, 'fill-outline-color': '#722ed1' } },
+    { id: 'sa-result-line', source: RESULT_SOURCE, type: 'line',
+      paint: { 'line-color': '#722ed1', 'line-width': 2 } },
+  ]
+  ensureGeoJSONSources(map, sources, layers)
 }
 
-function emptyFC() { return { type: 'FeatureCollection', features: [] } }
-
-/** 安全设置数据源内容 */
-function setSource(src, features) {
-  const map = getMap()
-  if (!map) return
-  try { map.getSource(src).setData({ type: 'FeatureCollection', features }) } catch(e) {}
-}
+function emptyFC() { return emptyFeatureCollection() }
 
 function useMapInstance() {
   return useMapStore()
@@ -420,7 +411,7 @@ function onDrawClick(e) {
   if (drawMode.value === 'point') {
     const geo = { type: 'Point', coordinates: pt }
     drawnGeo.value = geo
-    setSource(DRAW_SOURCE, [{ type: 'Feature', geometry: geo }])
+    setGeoJSONData(getMap(), DRAW_SOURCE, [{ type: 'Feature', geometry: geo }])
     return
   }
 
@@ -440,11 +431,11 @@ function onDrawDblClick(e) {
     const coords = [...tempPoints, tempPoints[0]]
     const geo = { type: 'Polygon', coordinates: [coords] }
     drawnGeo.value = geo
-    setSource(DRAW_SOURCE, [{ type: 'Feature', geometry: geo }])
+    setGeoJSONData(getMap(), DRAW_SOURCE, [{ type: 'Feature', geometry: geo }])
   } else if (drawMode.value === 'line' && tempPoints.length >= 2) {
     const geo = { type: 'LineString', coordinates: tempPoints }
     drawnGeo.value = geo
-    setSource(DRAW_SOURCE, [{ type: 'Feature', geometry: geo }])
+    setGeoJSONData(getMap(), DRAW_SOURCE, [{ type: 'Feature', geometry: geo }])
   }
   clearDrawListeners()
   if (map) map.getCanvas().style.cursor = ''
@@ -456,11 +447,11 @@ function updateTempDraw() {
   if (tempPoints.length < 1) return
   if (drawMode.value === 'line' && tempPoints.length >= 1) {
     const geo = { type: 'LineString', coordinates: tempPoints }
-    setSource(DRAW_SOURCE, [{ type: 'Feature', geometry: geo }])
+    setGeoJSONData(getMap(), DRAW_SOURCE, [{ type: 'Feature', geometry: geo }])
   } else if (drawMode.value === 'polygon' && tempPoints.length >= 2) {
     const coords = [...tempPoints]
     const geo = { type: 'Polygon', coordinates: [coords] }
-    setSource(DRAW_SOURCE, [{ type: 'Feature', geometry: geo }])
+    setGeoJSONData(getMap(), DRAW_SOURCE, [{ type: 'Feature', geometry: geo }])
   }
 }
 
@@ -479,7 +470,7 @@ function clearDraw() {
   drawMode.value = null
   tempPoints = []
   drawnGeo.value = null
-  setSource(DRAW_SOURCE, [])
+  setGeoJSONData(getMap(), DRAW_SOURCE, [])
 }
 
 // ==================== 缓冲区分析 ====================
@@ -625,7 +616,7 @@ function showResult(data) {
 
   if (!features) return
 
-  setSource(RESULT_SOURCE, features.type === 'FeatureCollection' ? features.features : [features])
+  setGeoJSONData(getMap(), RESULT_SOURCE, features.type === 'FeatureCollection' ? features.features : [features])
 
   // 缩放到结果范围
   const bounds = new mapboxgl.LngLatBounds()
@@ -643,7 +634,7 @@ function showResult(data) {
 
 /** 清除分析结果 */
 function clearResult() {
-  setSource(RESULT_SOURCE, [])
+  setGeoJSONData(getMap(), RESULT_SOURCE, [])
   hasResult.value = false
 }
 
@@ -659,23 +650,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearAll()
-  const map = getMap()
-  if (map) {
-    // 先检查图层是否存在再移除，避免 mapbox-gl 触发内部 error 事件
-    const drawLayers = ['sa-draw-fill', 'sa-draw-line', 'sa-draw-point']
-    const resultLayers = ['sa-result-fill', 'sa-result-line']
-    ;[...drawLayers, ...resultLayers].forEach(id => {
-      if (map.getLayer(id)) {
-        try { map.removeLayer(id) } catch (e) {}
-      }
-    })
-    // 移除数据源
-    ;[DRAW_SOURCE, RESULT_SOURCE].forEach(id => {
-      if (map.getSource(id)) {
-        try { map.removeSource(id) } catch (e) {}
-      }
-    })
-  }
+  removeLayersSafe(getMap(), ['sa-draw-fill', 'sa-draw-line', 'sa-draw-point', 'sa-result-fill', 'sa-result-line'], [DRAW_SOURCE, RESULT_SOURCE])
 })
 </script>
 
