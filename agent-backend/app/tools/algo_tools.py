@@ -96,23 +96,6 @@ def _normalize_score(val: float, min_val: float, max_val: float, minimize: bool)
     return 1.0 - score if minimize else score
 
 
-def _composite_score(resource: dict, objectives: list[str]) -> tuple[float, list[str]]:
-    """计算综合评分和入选理由"""
-    minimize = {"distance", "distance_m", "time", "cost"}
-    reasons = []
-    total = 0.0
-
-    for obj in objectives:
-        val = resource.get(obj, 0)
-        total += val
-        direction = "近" if obj in minimize else "大"
-        reasons.append(f"{obj}={val}（{direction}）")
-
-    # 简单加权：归一化后取平均
-    # 这里用原始值的简单排名作为评分（数据量小，不需要复杂归一化）
-    return total, reasons
-
-
 @tool
 async def pareto_resource_optimize(resources: str, objectives: str = '["distance_m","capacity"]', top_k: int = 3) -> dict:
     """

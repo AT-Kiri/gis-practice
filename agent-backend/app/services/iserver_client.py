@@ -21,22 +21,14 @@ class IServerClient:
 
     # ==================== 数据查询 ====================
 
-    async def post_feature_results(self, body: dict) -> dict:
+    async def post_feature_results(self, body: dict, datasource: str = "jingjin") -> dict:
         """
-        调用 iServer featureResults 接口（京津冀数据源）
-        POST /iserver/services/data-jingjin/rest/data/featureResults.json?returnContent=true
+        调用 iServer featureResults 接口
+        Args:
+            body: 请求体
+            datasource: 数据源名称，"jingjin"（默认）或 "changchun"
         """
-        url = f"{self.base_url}/iserver/services/data-jingjin/rest/data/featureResults.json?returnContent=true"
-        resp = await self.client.post(url, json=body)
-        resp.raise_for_status()
-        return resp.json()
-
-    async def post_changchun_feature_results(self, body: dict) -> dict:
-        """
-        调用 iServer featureResults 接口（长春数据源）
-        POST /iserver/services/data-changchun/rest/data/featureResults.json?returnContent=true
-        """
-        url = f"{self.base_url}/iserver/services/data-changchun/rest/data/featureResults.json?returnContent=true"
+        url = f"{self.base_url}/iserver/services/data-{datasource}/rest/data/featureResults.json?returnContent=true"
         resp = await self.client.post(url, json=body)
         resp.raise_for_status()
         return resp.json()

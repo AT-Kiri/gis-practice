@@ -147,6 +147,16 @@ def _normalize_geometry(g):
     return _normalize_json_param(g)
 
 
+def _parse_feature_properties(f: dict) -> dict:
+    """从 iServer feature 中提取 fieldNames/fieldValues 为 dict"""
+    properties = {}
+    field_names = f.get("fieldNames", [])
+    field_values = f.get("fieldValues", [])
+    for i, name in enumerate(field_names):
+        properties[name] = field_values[i]
+    return properties
+
+
 def _simplify_geometry_for_llm(geometry: dict, max_points: int = 20) -> str:
     """将几何对象简化为 JSON 字符串（最多 max_points 个点），供 LLM 链式调用。
     用于 buffer_analysis 的 data.geometry_brief，LLM 可直接传给 spatial_query 的 geometry 参数。
@@ -227,11 +237,7 @@ async def feature_search(keyword: str, level: str = "all", region: str = "auto")
                     features = data.get("features", [])
                     results = []
                     for f in features:
-                        properties = {}
-                        field_names = f.get("fieldNames", [])
-                        field_values = f.get("fieldValues", [])
-                        for i, name in enumerate(field_names):
-                            properties[name] = field_values[i]
+                        properties = _parse_feature_properties(f)
                         results.append({
                             "dataset": layer,
                             "datasetName": LAYER_NAMES.get(layer, layer),
@@ -261,15 +267,11 @@ async def feature_search(keyword: str, level: str = "all", region: str = "auto")
                     "queryParameter": {"attributeFilter": attr_filter},
                 }
                 try:
-                    data = await iserver_client.post_changchun_feature_results(body)
+                    data = await iserver_client.post_feature_results(body, datasource="changchun")
                     features = data.get("features", [])
                     results = []
                     for f in features:
-                        properties = {}
-                        field_names = f.get("fieldNames", [])
-                        field_values = f.get("fieldValues", [])
-                        for i, name in enumerate(field_names):
-                            properties[name] = field_values[i]
+                        properties = _parse_feature_properties(f)
                         results.append({
                             "dataset": layer,
                             "datasetName": CHANGCHUN_LAYER_NAMES.get(layer, layer),
@@ -420,7 +422,7 @@ async def spatial_query(geometry: str, feature_type: str = "all", region: str = 
             datasets = CHANGCHUN_POI_LAYERS  # 长春全是点要素，忽略 feature_type
             dataset_names = [f"{CHANGCHUN_DATASOURCE}:{d}" for d in datasets]
             layer_names_map = CHANGCHUN_LAYER_NAMES
-            post_fn = iserver_client.post_changchun_feature_results
+            post_fn = lambda body: iserver_client.post_feature_results(body, datasource="changchun")
             convert_fn = convert_changchun_geometry
             datasource_prefix = f"{CHANGCHUN_DATASOURCE}:"
             is_changchun = True
@@ -470,11 +472,7 @@ async def spatial_query(geometry: str, feature_type: str = "all", region: str = 
         for idx, f in enumerate(data.get("features", [])):
             range_info = next((r for r in dataset_ranges if r["start"] <= idx <= r["end"]), None)
             dataset_name = range_info["dataset"] if range_info else "未知"
-            properties = {}
-            field_names = f.get("fieldNames", [])
-            field_values = f.get("fieldValues", [])
-            for i, name in enumerate(field_names):
-                properties[name] = field_values[i]
+            properties = _parse_feature_properties(f)
             # 长春数据源的 displayName 优先取 name 字段
             if is_changchun:
                 display_name = properties.get("name") or properties.get("NAME") or "未命名"
@@ -1028,11 +1026,7 @@ async def fly_to_location(location: str) -> dict:
             return ToolResult(success=False, error=f"无法获取 {location} 的坐标").to_dict()
 
         center = [points[0]["x"], points[0]["y"]]
-        properties = {}
-        field_names = f.get("fieldNames", [])
-        field_values = f.get("fieldValues", [])
-        for i, name in enumerate(field_names):
-            properties[name] = field_values[i]
+        properties = _parse_feature_properties(f)
 
         # 构建点要素 GeoJSON
         geojson_geo = server_geo_to_geojson(geo)
